@@ -286,7 +286,6 @@ export default {
     resetConfirm: '恢复所有设置为默认值？',
     resetDone: '已恢复默认设置',
     sessionCount: '当前终端数',
-    dataDir: '数据目录',
     aboutText: 'ClawTerm 是一个 SSH / SFTP 终端管理器：多标签终端、SFTP 文件浏览与端口转发。',
   },
   themes: {

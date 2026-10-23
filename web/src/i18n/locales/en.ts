@@ -286,7 +286,6 @@ export default {
     resetConfirm: 'Reset every setting to its default?',
     resetDone: 'Settings reset',
     sessionCount: 'Open terminals',
-    dataDir: 'Data directory',
     aboutText: 'ClawTerm is an SSH / SFTP terminal manager: multi-tab terminals, SFTP file browsing and port forwarding.',
   },
   themes: {
