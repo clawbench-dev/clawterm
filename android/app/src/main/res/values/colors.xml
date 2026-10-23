@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the factory theme (gruvbox-dark bg-primary) so the splash,
+         the window background and the first painted frame are the same colour.
+         A mismatch here shows as a white flash on every cold start. -->
+    <color name="splash_background">#1d2021</color>
+    <color name="status_bar">#1d2021</color>
+</resources>

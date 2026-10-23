@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app talks only to its own loopback server over plain HTTP. Cleartext is
+     therefore required for 127.0.0.1 and explicitly denied everywhere else: a
+     blanket usesCleartextTraffic would also allow an accidental http:// URL to
+     any host, which is exactly the sort of downgrade an SSH client must not
+     permit. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

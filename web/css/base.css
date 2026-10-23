@@ -1,0 +1,382 @@
+/* ==========================================================================
+   Base Styles (Reset, Box-sizing, HTML/Body)
+   ========================================================================== */
+
+/* The scrollbar bar — one definition for every document (this sheet, the
+   OpenAPI iframe, the markdown export). Must be the first rule in the file:
+   CSS requires @import to precede all rules other than @charset/@layer. */
+@import './scrollbar.css';
+
+/* Native form controls (date/time pickers, checkbox/radio/select UA chrome,
+   number spinners, …) render from the CSS `color-scheme` of their element.
+   The app switches themes through data-theme-base on <html>, so point the
+   UA-drawn surfaces at the matching color scheme — otherwise the date-input
+   calendar icon and its popup card stay in the browser default (light) even
+   under a dark theme. */
+:root {
+    color-scheme: light;
+}
+:root[data-theme-base="dark"] {
+    color-scheme: dark;
+}
+
+/* Reset */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* HTML & Body — use 100vh instead of 100dvh to avoid iOS WKWebView mismatch.
+   On iOS, dvh shrinks when the soft keyboard opens but position:fixed elements
+   still reference the full screen, causing overflow. 100vh stays stable. */
+html, body {
+    height: 100vh;
+    font-family: var(--font-ui);
+    font-size: var(--font-size-xl);
+    line-height: var(--line-height-relaxed);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    transition: background var(--duration-slow), color var(--duration-slow);
+}
+
+/* ── Theme reveal (circular wipe) ─────────────────────────────────────
+   The theme toggle animates the new theme in with a circle growing from the
+   button (see utils/themeReveal.ts). Two pieces are needed here:
+
+   1. Kill the default cross-fade so only our circle wipe is visible. Without
+      this, the whole page would also cross-fade underneath the circle.
+   2. While .theme-reveal-active is set, suppress the html/body colour fade
+      above. The View Transitions snapshot of the new state is taken the moment
+      the theme attribute flips, but the root's own `transition` would still be
+      mid-flight at that instant, so the snapshot would capture the OLD colour
+      and the circle would reveal nothing. */
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation: none;
+}
+
+html.theme-reveal-active,
+html.theme-reveal-active body {
+    transition: none;
+}
+
+/* ── Custom wallpaper layer ──────────────────────────────────────────
+   Mounted inside .app-container (fixed) so it only covers the authenticated
+   main app — the login view (separate SPA subtree) is never behind it. The
+   layer sits at z-index:0; .main-content is promoted to z-index:1 so every
+   work panel renders above the wallpaper, while overlays/drawers/menus that
+   Teleport to body keep their own stacking contexts. pointer-events:none so
+   the layer never intercepts clicks.
+
+   The wallpaper itself is an <img> (bound via :src) rather than a CSS
+   background-image: swapping an <img> src reliably re-decodes in Android
+   WebView, whereas a CSS-custom-property-driven background-image swap can
+   silently keep showing the old frame until the app restarts. The scrim and
+   optional edge fade are sibling layers ABOVE the image so the Gaussian blur
+   (applied to .wallpaper-image only) never double-filters them. */
+
+.wallpaper-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-color: var(--bg-primary);
+    overflow: hidden;
+    pointer-events: none;
+}
+
+/* Cover the container exactly like the old background-size:cover.
+   transform-origin center + inline transform scale(1.06) when blurred
+   compensates for the translucent feathering the blur pulls in at the edges. */
+.wallpaper-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+.wallpaper-scrim {
+    position: absolute;
+    inset: 0;
+    background: var(--wallpaper-scrim);
+}
+
+/* Edge fade via an alpha MASK on the image itself (not a colored overlay).
+   Fading the image's own alpha toward 0 lets the .wallpaper-layer's
+   --bg-primary base show through — the transition lives entirely in the alpha
+   channel, which GPUs render as a single smooth ramp. A colored gradient
+   overlay instead blends two colors over the photo and can still show faint
+   contour lines where the gradient's 8-bit steps land on photo detail. The
+   60%→100% outer band leaves the center untouched. */
+.wallpaper-image--edge-fade {
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 60%, transparent 100%);
+    mask-image: radial-gradient(ellipse at center, #000 60%, transparent 100%);
+}
+
+/* Main content sits above the wallpaper layer. When no wallpaper is active
+   this is harmless (layer is inert/absent). The download progress bar is a
+   direct child of .app-container as well, but it positions itself (fixed, with
+   its own z-index) so it is deliberately not listed here. */
+.app-container > .main-content,
+.app-container > .bottom-dock-wrapper {
+    position: relative;
+    z-index: 1;
+}
+
+/* ── Wallpaper-active panel translucency ────────────────────────────
+   With a wallpaper set, main work surfaces (the per-tab panels, app header,
+   session sidebar, file overlay) become translucent through --panel-alpha.
+   Overlays/drawers/menus/editors/terminals keep their own solid backgrounds
+   (they are not listed here), so dense content stays readable. Without
+   .wallpaper-active none of these rules apply → byte-identical to before. */
+
+html.wallpaper-active .header,
+html.wallpaper-active .tab-panel,
+html.wallpaper-active .chat-title-bar,
+html.wallpaper-active .session-sidebar,
+html.wallpaper-active .file-header-bar {
+    background: color-mix(in srgb, var(--bg-secondary) var(--panel-alpha), transparent);
+}
+
+/* The pinned session-sidebar header rides on the shared global .bs-header
+   (solid bg-secondary) which would otherwise cover the wallpaper already
+   showing through .session-sidebar — make it translucent at the same alpha. */
+html.wallpaper-active .session-sidebar-header {
+    background: color-mix(in srgb, var(--bg-secondary) var(--panel-alpha), transparent);
+    box-shadow: none;
+}
+
+/* The file overlay fills its whole view TabPanel. If both were translucent the
+   wallpaper would show through TWO scrim layers (nearly invisible); instead the
+   overlay goes fully transparent so the panel beneath it (already at
+   --panel-alpha) is the single visible surface. */
+html.wallpaper-active .file-overlay {
+    background: transparent;
+}
+
+html.wallpaper-active .bottom-dock,
+html.wallpaper-active .wide-dock {
+    background: color-mix(in srgb, var(--bg-primary) var(--panel-alpha), transparent);
+}
+
+/* ── Extended page surfaces (wallpaper-active) ──────────────────────
+   Full-page tab roots must NOT stack a second translucent layer over the
+   already-translucent .tab-panel: compounding alphas (panel root → card →
+   panel) dims the wallpaper until low-opacity settings nearly hide it. So,
+   following the .file-overlay precedent, whole-page roots AND the full-bleed
+   card/list surfaces inside them become fully transparent while the wallpaper
+   is active — the .tab-panel is the single visible surface and every tab reads
+   at the same translucency as the file browser. Only narrow page-level bars
+   keep a translucent tint (structure) and hover/active states re-add a tint as
+   feedback. Content canvases stay opaque by design: video player (#000), code
+   editor (--code-bg), Excalidraw iframe, PDF page canvas (#525659), the
+   terminal xterm surface, and input widgets inside forms (text fields,
+   textareas, selects keep their own solid fills). */
+
+/* Whole-page roots — remove the second scrim layer entirely */
+html.wallpaper-active .task-list-page,
+html.wallpaper-active .task-detail-page,
+html.wallpaper-active .task-form-page,
+html.wallpaper-active .exec-detail-page,
+html.wallpaper-active .task-overview,
+html.wallpaper-active .proxy-panel-content,
+html.wallpaper-active .settings-page,
+html.wallpaper-active .settings-index,
+html.wallpaper-active .settings-category,
+html.wallpaper-active .settings-agents-index,
+html.wallpaper-active .settings-agent-detail,
+html.wallpaper-active .stats-tab-host,
+html.wallpaper-active .usage-stats-panel,
+html.wallpaper-active .git-code-stats-panel,
+html.wallpaper-active .cloc-stats-panel,
+html.wallpaper-active .image-preview-body,
+html.wallpaper-active .audio-preview-body,
+html.wallpaper-active .pdf-preview-container,
+html.wallpaper-active .pdf-error,
+html.wallpaper-active .office-preview-container,
+html.wallpaper-active .forge-panel,
+html.wallpaper-active .forge-detail,
+html.wallpaper-active .forge-comment-body,
+html.wallpaper-active .git-history-content {
+    background: transparent;
+}
+
+/* Full-bleed cards / list rows inside those pages — translucent so cards keep
+   a subtle depth layer over the single .tab-panel surface. The page roots stay
+   transparent (above) so only this one card layer stacks on top of the panel;
+   card areas are thus a touch dimmer than bare gaps but never compounded three
+   layers deep. */
+html.wallpaper-active .task-item,
+html.wallpaper-active .execution-item,
+html.wallpaper-active .overview-card,
+html.wallpaper-active .proxy-port-item,
+html.wallpaper-active .form-section,
+html.wallpaper-active .stats-card-panel,
+html.wallpaper-active .forge-comment {
+    background: color-mix(in srgb, var(--bg-secondary) var(--panel-alpha), transparent);
+}
+/* The forge error card keeps its red wash but must sit on the same translucent
+   base as other cards, or it reads as an opaque block over the wallpaper. */
+html.wallpaper-active .forge-error-card {
+    background: color-mix(in srgb, var(--color-red) 6%, color-mix(in srgb, var(--bg-secondary) var(--panel-alpha), transparent));
+}
+html.wallpaper-active .settings-card__body,
+html.wallpaper-active .group-panel__card,
+html.wallpaper-active .settings-agents-index__row,
+html.wallpaper-active .settings-agents-index__rescan-row {
+    background: color-mix(in srgb, var(--bg-primary) var(--panel-alpha), transparent);
+}
+
+/* Page-level bars keep a translucent tint so chrome stays legible over the
+   wallpaper (same look as the file browser's dir-toolbar / dir-nav-bottom).
+   Headers whose page root is transparent in wallpaper mode get the unified
+   bg-primary tint (matching their own non-wallpaper base) so they still read
+   as a distinct bar — task, proxy, settings and stats headers all share it. */
+html.wallpaper-active .settings-page__header,
+html.wallpaper-active .stats-header,
+html.wallpaper-active .list-header,
+html.wallpaper-active .detail-header,
+html.wallpaper-active .exec-detail-header,
+html.wallpaper-active .form-header,
+html.wallpaper-active .proxy-header,
+html.wallpaper-active .detail-actions,
+html.wallpaper-active .form-footer,
+html.wallpaper-active .exec-detail-actions,
+html.wallpaper-active .forge-header,
+html.wallpaper-active .forge-detail-header,
+html.wallpaper-active .forge-detail-footer {
+    background: color-mix(in srgb, var(--bg-primary) var(--panel-alpha), transparent);
+}
+/* The drill-down header is NOT listed here: it is transparent by design (it is
+   the top of the page root, not a contrasting bar). Giving it a translucent
+   bg-secondary tint under wallpaper-active would put the bar back, and the row
+   hover tint below would then be invisible against it. */
+html.wallpaper-active .terminal-tab-bar,
+html.wallpaper-active .stats-tab-bar,
+html.wallpaper-active .manage-tabs,
+html.wallpaper-active .toc-dock,
+html.wallpaper-active .forge-tabs {
+    background: color-mix(in srgb, var(--bg-secondary) var(--panel-alpha), transparent);
+}
+html.wallpaper-active .dir-toolbar {
+    background: color-mix(in srgb, var(--bg-tertiary) var(--panel-alpha), transparent);
+}
+html.wallpaper-active .dir-nav-bottom {
+    background: color-mix(in srgb, var(--bg-primary) var(--panel-alpha), transparent);
+}
+/* File manager resident search dock. It carries the top toolbar's material
+   (--bg-tertiary), so it goes translucent at that token. The pill inside it is
+   a deliberately flat field with no fill and no border in ANY state (including
+   focus), so there is nothing further to re-tint here — adding a focused tint
+   would put back the box the field was designed to shed. */
+html.wallpaper-active .fs-nav-bottom {
+    background: color-mix(in srgb, var(--bg-tertiary) var(--panel-alpha), transparent);
+}
+
+/* Section-title bands inside settings cards keep a translucent tint so the
+   grouping is still visible without blocking the wallpaper. */
+html.wallpaper-active .settings-card__header,
+html.wallpaper-active .group-panel__header,
+html.wallpaper-active .group-panel__section-header {
+    background: color-mix(in srgb, var(--bg-tertiary) var(--panel-alpha), transparent);
+}
+
+/* Interactive states on the translucent cards/rows re-tint the surface as
+   feedback. Where a scoped rule paints a solid var(--bg-*) (e.g. :hover,
+   :active, .completed) this higher-specificity scope overrides it with the
+   translucent equivalent; running states keep their green tint composited
+   over the translucent card base. */
+html.wallpaper-active .task-item:active,
+html.wallpaper-active .task-item.completed,
+html.wallpaper-active .execution-item:active:not(.running),
+html.wallpaper-active .group-panel__entry-row:hover,
+html.wallpaper-active .group-panel__entry-row:active,
+html.wallpaper-active .settings-index__row:hover,
+html.wallpaper-active .settings-index__row:active,
+html.wallpaper-active .settings-agents-index__row:hover,
+html.wallpaper-active .settings-agents-index__row:active,
+html.wallpaper-active .settings-agents-index__rescan-row:hover,
+html.wallpaper-active .settings-agents-index__rescan-row:active {
+    background: color-mix(in srgb, var(--bg-tertiary) var(--panel-alpha), transparent);
+}
+html.wallpaper-active .task-item.is-running,
+html.wallpaper-active .execution-item.running {
+    background: color-mix(in srgb, var(--color-green) 5%, color-mix(in srgb, var(--bg-secondary) var(--panel-alpha), transparent));
+}
+
+/* OfficePreview re-encodes its wrappers with !important deep overrides —
+   must match with !important inside the active scope. The wrappers live in
+   the DOM under .office-preview-body (any depth), so a plain descendant
+   selector covers them. */
+html.wallpaper-active .office-preview-body .docx-wrapper,
+html.wallpaper-active .office-preview-body .pptx-preview-wrapper {
+    background: color-mix(in srgb, var(--bg-primary) var(--panel-alpha), transparent) !important;
+}
+
+/* CodeMirror source view — both browse (read-only preview) and edit mode let
+   the wallpaper show through the code canvas, gutters and the edit toolbar.
+   .cm-viewer is scoped CSS, while .cm-editor/.cm-gutters are injected by the
+   editor theme into .cm-host (global) — list every layer so none stays opaque.
+   The editable accent tint is preserved by mixing it over the translucent base. */
+html.wallpaper-active .cm-viewer,
+html.wallpaper-active .cm-viewer .cm-editor,
+html.wallpaper-active .cm-viewer .cm-gutters {
+    background: color-mix(in srgb, var(--code-bg) var(--panel-alpha), transparent);
+}
+html.wallpaper-active .cm-viewer.is-editable,
+html.wallpaper-active .cm-viewer.is-editable .cm-editor,
+html.wallpaper-active .cm-viewer.is-editable .cm-gutters {
+    background: color-mix(in srgb, var(--accent-color) 6%, color-mix(in srgb, var(--code-bg) var(--panel-alpha), transparent));
+}
+html.wallpaper-active .cm-viewer .code-editor-actions {
+    background: color-mix(in srgb, var(--bg-secondary) var(--panel-alpha), transparent);
+}
+
+/* Chat message bubbles — let the wallpaper show through the assistant strip
+   (bg-tertiary) and the user bubble (--user-msg-color) at the panel opacity.
+   Only the bubble body goes translucent: inner content canvases (code blocks,
+   tool cards, markdown tables) keep their own solid fills for readability. */
+html.wallpaper-active .chat-message.assistant .msg-card {
+    background: color-mix(in srgb, var(--bg-tertiary) var(--panel-alpha), transparent);
+}
+html.wallpaper-active .chat-message.user .msg-card {
+    background: color-mix(in srgb, var(--user-msg-color) var(--panel-alpha), transparent);
+}
+
+/* Plan progress panel — the collapsed chip (bg-tertiary) and the expanded
+   timeline card (bg-secondary) float in the chat column between the bubbles
+   and the input bar. They get the same translucent tint so the wallpaper
+   shows through; status-node circle bases keep an opaque --bg-secondary
+   (their own scoped rule at equal specificity — a base.css translucent
+   override would need to match the node's 16px disc exactly) except for the
+   completed green fill which is already a status color. */
+html.wallpaper-active .plan-chip {
+    background: color-mix(in srgb, var(--bg-tertiary) var(--panel-alpha), transparent);
+}
+html.wallpaper-active .plan-expanded {
+    background: color-mix(in srgb, var(--bg-secondary) var(--panel-alpha), transparent);
+}
+
+/* Git history drill-down — the commit-meta bar (shared by the file-list view
+   and the file-diff view) and the interactive commit/file row highlights get
+   the translucent treatment so they sit consistently on the single
+   .tab-panel layer like the rest of the history tab content. */
+html.wallpaper-active .diff-meta-panel {
+    background: color-mix(in srgb, var(--bg-secondary) var(--panel-alpha), transparent);
+}
+html.wallpaper-active .diff-meta-sha:hover,
+html.wallpaper-active .drilldown-item:hover {
+    background: color-mix(in srgb, var(--bg-secondary) var(--panel-alpha), transparent);
+}
+html.wallpaper-active .drilldown-item:active {
+    background: color-mix(in srgb, var(--bg-tertiary) var(--panel-alpha), transparent);
+}
+
+/* Scrollbar styling lives in css/scrollbar.css (imported at the top of this
+   file) — the single definition shared with the OpenAPI iframe and the markdown
+   export. Do not re-add a copy here. */

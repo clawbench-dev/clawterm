@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Programmatically inflated views need a stable id to be looked up later;
+         defining it here keeps it out of the R.id collision space of future
+         layouts. -->
+    <item name="error_detail" type="id" />
+</resources>

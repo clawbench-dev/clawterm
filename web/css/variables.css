@@ -1,0 +1,2407 @@
+/* ==========================================================================
+   CSS Custom Properties — VSCode-style named themes
+   Each theme is self-contained, defining all color variables independently.
+   Theme is selected via data-theme="<id>" on <html>.
+   data-theme-base="light|dark" is set alongside for CSS selector convenience.
+
+   Variable groups per theme:
+     - Backgrounds:        --bg-primary / --bg-secondary / --bg-tertiary / --bg-elevated
+     - Interactive bg:     --bg-hover / --bg-active
+     - Text:               --text-primary / --text-secondary / --text-muted / --text-hint / --text-bold
+     - Borders & scroll:   --border-color / --table-border / --scrollbar-thumb / --scrollbar-thumb-hover
+                           --scrollbar-track
+     - Accent / brand:     --accent-color / --accent-hover / --brand-color
+     - Links & focus:      --link-color / --focus-ring / --selection-bg
+     - Status colors:      --color-green / --color-yellow / --color-red / --color-purple
+                           --color-info / --color-orange / --color-success
+     - Gradients:          --gradient-brand / --gradient-success / --gradient-warning
+     - User message:       --user-msg-color
+     - Shadows / misc:     --shadow-sm / --shadow-md / --code-bg / --lb-bg / --lb-toolbar-bg / --text-color
+     - Code syntax:        --code-syntax-* (14)
+   ========================================================================== */
+
+:root {
+    /* ── Static layout values (never change with theme) ──────────── */
+    --header-height: 36px;
+    --header-safe-area-top: env(safe-area-inset-top, 0px);
+    --dock-height: calc(47px + env(safe-area-inset-bottom, 0));
+
+    /* ── Corner radii. `full` is the pill/circle form; `0` (square) is
+       written literally where a shape is deliberately sharp, since a token
+       would only obscure that it is a decision. ── */
+    --radius-xs: 3px;      /* tags, tiny chips */
+    --radius-sm: 6px;      /* buttons, inputs, menu rows */
+    --radius-md: 10px;     /* cards, panels, popovers */
+    --radius-lg: 14px;     /* dialogs, large surfaces */
+    --radius-full: 999px;  /* pills, avatars, icon buttons */
+
+    /* ── Spacing scale. Numbers are step names, not sizes: the same step can
+       mean "inset of a dense row" or "gap between cards" depending on where
+       it lands, so semantic names would mislead more than they help. The
+       scale is 4px-based with 2px/6px/10px kept because they are already
+       load-bearing in dense UI (badges, icon padding). ── */
+    --space-1: 2px;
+    --space-2: 4px;
+    --space-3: 6px;
+    --space-4: 8px;
+    --space-5: 10px;
+    --space-6: 12px;
+    --space-7: 16px;
+    --space-8: 20px;
+    --space-9: 24px;
+    --space-10: 28px;
+
+    /* ── Scrollbar track fill. The thumb is themed per palette, but no theme
+       tints the track, so this lives once here as the shared default. It is
+       consumed (with this same value as a literal fallback) by
+       css/scrollbar.css, which is also inlined into standalone documents
+       (OpenAPI iframe, file:// export) that never see this :root — hence the
+       fallback there. Declared so the token is not a dangling reference. ── */
+    --scrollbar-track: transparent;
+
+    /* ── Transition durations for colour / opacity / small state changes.
+       Longer durations are deliberately NOT tokenized: the 0.25s+ values
+       drive transforms, widths and max-height, where the extra time is the
+       point (a panel sliding in reads as broken at 0.15s). ── */
+    --duration-fast: 0.1s;   /* hover / active feedback */
+    --duration-base: 0.15s;  /* the default for colour and background */
+    --duration-slow: 0.2s;   /* larger surfaces fading */
+
+    /* ── Stacking order. Only the large, otherwise-mysterious values are
+       named: small integers (0/1/2/3/5/10) read fine in place and usually
+       just order siblings within one container.
+       Each `-backdrop` sits one below its surface so the surface's own
+       children still paint above the scrim. The values are unchanged from
+       the literals they replace — this names the order, it does not retune
+       it. ── */
+    --z-overlay: 1000;              /* welcome / modal / bottom-sheet scrim */
+    /* BottomSheet overlays stack within 1000..1049 by open order (a drawer
+       opened from inside another must paint above it). --z-overlay-raised is
+       parked above that whole band so an upgrade prompt still beats every
+       scrim, however many are stacked. */
+    --z-overlay-raised: 1050;       /* upgrade prompts, above those scrims */
+    --z-header: 1100;               /* app header */
+    --z-sheet: 1200;                /* fullscreen sheet, code-preview float */
+    --z-preview-tooltip: 1300;      /* tooltip attached to the preview float */
+    --z-header-overlay: 2000;       /* header's own dropdown scrim */
+    --z-quote-bar: 2400;            /* quote-reply bar */
+    --z-context-menu-backdrop: 2499;
+    --z-context-menu: 2500;
+    --z-modal: 3000;                /* install / generic dialog */
+    --z-popover-backdrop: 9998;
+    --z-popover: 9999;              /* menus, dropdowns, tooltips, toasts */
+    --z-lightbox: 10000;            /* image lightbox — topmost */
+
+    /* ── Opacity for de-emphasised content. Named by *why* something is
+       faded rather than by the number, since that is what the value is
+       expressing. `0` (hidden) and `1` (fully shown) stay literal — they
+       are the two ends of the range, not a level of de-emphasis. ── */
+    --opacity-disabled: 0.4;  /* unusable: disabled, missing, locked */
+    --opacity-muted: 0.5;     /* secondary: ambient icons, line numbers */
+    --opacity-soft: 0.7;      /* lightly dimmed: inactive tabs, badges */
+    --opacity-hover: 0.9;     /* transient feedback on hover / press */
+
+    /* ── Diff row tints. Every diff surface in the app (git history, the
+       markdown/code diff drawer, chat tool-call edits, the CodeMirror
+       changed-line overlay) draws its added/deleted/modified rows from these
+       six tokens, so a row looks the same wherever it appears.
+
+       The tint alone is NOT the signal. Red and green tints over the same
+       surface sit within ~1.1:1 of each other even at full depth, so a
+       reader who cannot separate the two hues gets nothing from the
+       background. Each row therefore also carries a solid 3px rail in the
+       matching `--diff-*-accent` colour — a shape channel that survives any
+       colour-vision deficiency. Do not drop the rail when editing a surface.
+
+       The tint is mixed from the theme's own status colours so all 36 themes
+       stay in tune, and it is deliberately much deeper than a hairline wash:
+       the previous 8% left added and deleted rows indistinguishable at
+       ~1.04:1. Dark surfaces swallow a tint faster than light ones, hence the
+       override at the end of this file. ── */
+    --diff-add-bg: color-mix(in srgb, var(--color-green) 20%, transparent);
+    --diff-del-bg: color-mix(in srgb, var(--color-red) 20%, transparent);
+    --diff-mod-bg: color-mix(in srgb, var(--color-yellow) 20%, transparent);
+    --diff-add-accent: var(--color-green);
+    --diff-del-accent: var(--color-red);
+    --diff-mod-accent: var(--color-yellow);
+
+    /* ── Running-session indicator — the bottom-edge COMET.
+
+       The row's bottom edge is a flat 3px track. Running sessions send a
+       38%-wide comet across it: a long transparent lead-in, a translucent
+       body, and an opaque head at the leading (right) edge, so the travel
+       reads as directed motion rather than a blob drifting past.
+
+       This deliberately replaced an earlier design that laid a 14px glow with
+       a vertical mask along the same edge and swept an 80% band through it.
+       Two effects on one edge fought each other: the tall glow softened the
+       comet into a smear and made the "running" signal read as ambient
+       lighting rather than progress. The comet now owns the edge alone — one
+       layer, one effect. (The 14px glow is gone; do not reintroduce a second
+       layer here without removing the comet.)
+
+       The tokens stay translucent on purpose: at full strength a 3px stripe
+       reads as a hard border rather than a signal. They keep the accent's
+       exact hue and saturation (never blended toward grey), which is what
+       stops a theme's colour from washing out. ── */
+    --running-track: color-mix(in srgb, var(--accent-color) 12%, transparent);
+    --running-comet: color-mix(in srgb, var(--accent-color) 70%, transparent);
+    --running-head: var(--accent-color);
+
+    /* Blocked on an approval: the comet stops travelling and instead becomes a
+       full-width amber bar breathing in place, so "waiting on you" is
+       distinguishable from "working" even with the comet out of frame. Matches
+       the pending dot in the status slot, so both halves of the same message
+       agree. The track stays as the faint under-bar it always is. */
+    --pending-track: color-mix(in srgb, var(--color-orange) 22%, transparent);
+    --pending-comet: var(--color-orange);
+
+    /* The chat input button is a small chip, not a full-width row, so it keeps
+       its own travelling sweep rather than a bottom edge. */
+    --running-sweep: color-mix(in srgb, var(--accent-color) 45%, transparent);
+
+    /* ── Session-row status slot. One element on the right of a row carries
+       the "this row wants your attention" states, so they have to be told
+       apart at a glance rather than by reading a tooltip.
+
+       There are only two, and the split is by *motion*, because colour alone
+       cannot do it: a theme's accent and its orange are free to sit close
+       together (both are theme properties), and a reader with a colour-vision
+       deficiency gets nothing from the hue either. So:
+
+         pending  — one dot PULSES in place   (work is blocked on you)
+         unread   — one dot never moves       (nothing is happening)
+
+       A RUNNING row shows nothing in the slot: its bottom-edge comet already
+       carries "work is progressing", so a second marker would say the same
+       thing twice. There is deliberately no ring token — a ring here was the
+       same message as the comet, and reintroducing one would bring back the
+       duplication.
+
+       `pending` uses `--color-orange` rather than the accent so it reads as a
+       different *kind* of thing (needs you) rather than a different degree of
+       the same thing (busy). It is a per-theme token, so it still follows the
+       user's palette instead of being a hardcoded amber. ── */
+    --status-dot: var(--accent-color);
+    --status-dot-pending: var(--color-orange);
+
+    /* ── Custom wallpaper (applied at runtime when a wallpaper is set) ──
+       --wallpaper-url: url(...) of the active wallpaper, or `none`.
+       --wallpaper-scrim: translucent overlay color on top of the wallpaper
+       (dark themes darken more). --panel-alpha: opacity multiplier applied to
+       main work-panel surfaces so the wallpaper shows through them. These are
+       inert by default (wallpaper absent → surfaces stay opaque, zero
+       regression). The wallpaper-active class on <html> activates the rules
+       that consume them. ── */
+    --wallpaper-url: none;
+    --wallpaper-scrim: transparent;
+    --panel-alpha: 100%;
+
+    /* ── Font stacks (user-configurable via Settings → Appearance).
+       Runtime overrides the selected open-source font to the head of each
+       stack through <html> inline style (see utils/fontConfig.ts).
+       Values here must mirror DEFAULT_UI_STACK / DEFAULT_MONO_STACK. ── */
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+    --font-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Segoe UI Mono', 'Roboto Mono', Consolas, 'Liberation Mono', monospace;
+
+    /* ── Type scale. Fixed px rather than rem on purpose: the appearance
+       "缩放" setting scales the whole UI through `html { zoom }` (see
+       useSettingsConfig.applyUIScale), so px values already follow it.
+       Seven steps cover the sizes the UI actually uses; every one of them
+       maps to a distinct role, so prefer picking the closest step over
+       introducing an eighth. ── */
+    --font-size-2xs: 10px;   /* badges, corner marks, diff gutters */
+    --font-size-xs: 11px;    /* dense meta: tool cards, file paths, diffs */
+    --font-size-sm: 12px;    /* compact body: tool detail, list rows */
+    --font-size-md: 13px;    /* default UI text: chat messages, settings */
+    --font-size-lg: 14px;    /* tool icons, dialog titles, primary buttons */
+    --font-size-xl: 15px;    /* reading text — matches the html/body base */
+    --font-size-2xl: 16px;   /* headings, and inputs kept at 16px so mobile
+                                Safari does not zoom when they gain focus */
+
+    /* ── Icon size scale (px). Four steps for the agent/brand icons, chosen so
+       each matches the text it sits beside: sm (14) rides 10–12px meta, md (18)
+       the default 13–15px rows, lg (24) larger list/avatar contexts, xl (40)
+       the single settings-detail preview. Passed to AgentIcon as `size` enum
+       (sm|md|lg|xl), which resolves to these vars. Prefer the closest step over
+       a new one. ── */
+    --icon-size-sm: 14px;
+    --icon-size-md: 18px;
+    --icon-size-lg: 24px;
+    --icon-size-xl: 40px;
+
+    /* ── Weights. Three steps cover the UI, plus `normal` for the places that
+       must opt back OUT of an inherited weight (a muted badge nested inside a
+       semibold label); `800` exists once for terminal keycaps. ── */
+    --font-weight-normal: 400;    /* resets an inherited weight */
+    --font-weight-medium: 500;    /* secondary emphasis, list emphasis */
+    --font-weight-semibold: 600;  /* the workhorse: labels, headings, buttons */
+    --font-weight-bold: 700;      /* strong emphasis, keycaps */
+
+    /* ── Line heights (unitless, so they scale with the element's own font
+       size). `1` on a single-line element and the handful of px values are
+       left as-is. ── */
+    --line-height-tight: 1.2;    /* dense two-line blocks */
+    --line-height-snug: 1.4;     /* compact UI text */
+    --line-height-normal: 1.5;   /* body text */
+    --line-height-relaxed: 1.6;  /* long-form reading (markdown) */
+
+    /* ── Single-line form controls (<textarea>/<input>).
+       MUST stay an INTEGER px value, unlike the unitless steps above.
+
+       A textarea aligns its text to the TOP of the content box, so a single
+       line only *looks* vertically centred while the content box height is
+       exactly one line box + padding (zero slack). Android WebView rounds the
+       form control's line box and its content-box height independently, and
+       CJK fonts carry a larger ascent/descent than the Latin fallback; at a
+       fractional line box the two roundings stop cancelling and the caret sits
+       visibly high. Desktop Chrome happens to round them the same way, which is
+       why the drift is WebView-only.
+
+       Pairs with --font-size-md: 13px × 1.4 = 18.2px → 18px keeps the line box
+       whole, and 18 + (--space-2 × 2) = 26px, matching the row's 26px buttons. */
+    --input-line-height: 18px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   1. GitHub Light
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="github-light"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8f9fa;
+    --bg-tertiary: #e9ecef;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #212529;
+    --text-secondary: #495057;
+    --text-muted: #6c757d;
+    --text-hint: #9aa4af;
+    --border-color: #dee2e6;
+    --accent-color: #4a90d9;
+    --accent-hover: #3a7bc8;
+    --brand-color: #4a90d9;
+    --link-color: #1f6feb;
+    --focus-ring: rgba(31,111,235,0.4);
+    --selection-bg: rgba(31,111,235,0.2);
+    --user-msg-color: #5b8fbf;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #f6f8fa;
+    --table-border: #d0d7de;
+    --scrollbar-thumb: #c1c1c1;
+    --scrollbar-thumb-hover: #a8a8a8;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(255,255,255,0.9);
+    --text-color: #212529;
+    --color-green: #16a34a;
+    --color-yellow: #a16207;
+    --color-red: #dc2626;
+    --color-purple: #7c3aed;
+    --color-info: #1f6feb;
+    --color-orange: #d9730d;
+    --color-success: #16a34a;
+    --text-bold: #0d1117;
+    --gradient-brand: linear-gradient(135deg, #4a90d9, #6fb7f0);
+    --gradient-success: linear-gradient(135deg, #16a34a, #4cbb6f);
+    --gradient-warning: linear-gradient(135deg, #a16207, #d9730d);
+    --code-syntax-comment: #6a737d;
+    --code-syntax-keyword: #d73a49;
+    --code-syntax-string: #032f62;
+    --code-syntax-number: #005cc5;
+    --code-syntax-function: #6f42c1;
+    --code-syntax-type: #22863a;
+    --code-syntax-variable: #e36209;
+    --code-syntax-property: #005cc5;
+    --code-syntax-operator: #d73a49;
+    --code-syntax-tag: #22863a;
+    --code-syntax-attribute: #6f42c1;
+    --code-syntax-meta: #24292e;
+    --code-syntax-heading: #005cc5;
+    --code-syntax-link: #005cc5;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   2. GitHub Dark
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="github-dark"] {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --bg-elevated: #21262d;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #c9d1d9;
+    --text-secondary: #8b949e;
+    --text-muted: #6e7681;
+    --text-hint: #59626d;
+    --border-color: #30363d;
+    --accent-color: #58a6ff;
+    --accent-hover: #79b8ff;
+    --brand-color: #58a6ff;
+    --link-color: #58a6ff;
+    --focus-ring: rgba(88,166,255,0.4);
+    --selection-bg: rgba(88,166,255,0.25);
+    --user-msg-color: #3a6288;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #161b22;
+    --table-border: #30363d;
+    --scrollbar-thumb: #484f58;
+    --scrollbar-thumb-hover: #59626d;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(30,35,42,0.95);
+    --text-color: #e0e0e0;
+    --color-green: #3fb950;
+    --color-yellow: #e3b341;
+    --color-red: #f85149;
+    --color-purple: #a371f7;
+    --color-info: #58a6ff;
+    --color-orange: #f0883e;
+    --color-success: #3fb950;
+    --text-bold: #e6edf3;
+    --gradient-brand: linear-gradient(135deg, #58a6ff, #79c0ff);
+    --gradient-success: linear-gradient(135deg, #3fb950, #56d364);
+    --gradient-warning: linear-gradient(135deg, #e3b341, #f0883e);
+    --code-syntax-comment: #8b949e;
+    --code-syntax-keyword: #ff7b72;
+    --code-syntax-string: #a5d6ff;
+    --code-syntax-number: #79c0ff;
+    --code-syntax-function: #d2a8ff;
+    --code-syntax-type: #7ee787;
+    --code-syntax-variable: #ffa657;
+    --code-syntax-property: #79c0ff;
+    --code-syntax-operator: #ff7b72;
+    --code-syntax-tag: #7ee787;
+    --code-syntax-attribute: #d2a8ff;
+    --code-syntax-meta: #e6edf3;
+    --code-syntax-heading: #79c0ff;
+    --code-syntax-link: #79c0ff;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   3. One Dark Pro
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="one-dark-pro"] {
+    --bg-primary: #282c34;
+    --bg-secondary: #21252b;
+    --bg-tertiary: #2c313a;
+    --bg-elevated: #2c313a;
+    --bg-hover: rgba(255,255,255,0.06);
+    --bg-active: rgba(255,255,255,0.12);
+    --text-primary: #abb2bf;
+    --text-secondary: #9da4b0;
+    --text-muted: #8c93a1;
+    --text-hint: #636d83;
+    --border-color: #3e4451;
+    --accent-color: #61afef;
+    --accent-hover: #82c4f4;
+    --brand-color: #61afef;
+    --link-color: #61afef;
+    --focus-ring: rgba(97,175,239,0.4);
+    --selection-bg: rgba(97,175,239,0.25);
+    --user-msg-color: #3e6a96;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #21252b;
+    --table-border: #3e4451;
+    --scrollbar-thumb: #4b5263;
+    --scrollbar-thumb-hover: #5c6370;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(40, 44, 52, 0.95);
+    --text-color: #abb2bf;
+    --color-green: #98c379;
+    --color-yellow: #e5c07b;
+    --color-red: #e06c75;
+    --color-purple: #c678dd;
+    --color-info: #61afef;
+    --color-orange: #d19a66;
+    --color-success: #98c379;
+    --text-bold: #d7dae0;
+    --gradient-brand: linear-gradient(135deg, #61afef, #82c4f4);
+    --gradient-success: linear-gradient(135deg, #98c379, #b3d48f);
+    --gradient-warning: linear-gradient(135deg, #e5c07b, #d19a66);
+    --code-syntax-comment: #5c6370;
+    --code-syntax-keyword: #c678dd;
+    --code-syntax-string: #98c379;
+    --code-syntax-number: #d19a66;
+    --code-syntax-function: #61afef;
+    --code-syntax-type: #e5c07b;
+    --code-syntax-variable: #e06c75;
+    --code-syntax-property: #e06c75;
+    --code-syntax-operator: #56b6c2;
+    --code-syntax-tag: #e06c75;
+    --code-syntax-attribute: #d19a66;
+    --code-syntax-meta: #abb2bf;
+    --code-syntax-heading: #61afef;
+    --code-syntax-link: #61afef;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   4. Catppuccin Mocha
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="catppuccin-mocha"] {
+    --bg-primary: #1e1e2e;
+    --bg-secondary: #181825;
+    --bg-tertiary: #313244;
+    --bg-elevated: #313244;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #cdd6f4;
+    --text-secondary: #bac2de;
+    --text-muted: #6c7086;
+    --text-hint: #585b70;
+    --border-color: #45475a;
+    --accent-color: #89b4fa;
+    --accent-hover: #b4befe;
+    --brand-color: #89b4fa;
+    --link-color: #89b4fa;
+    --focus-ring: rgba(137,180,250,0.4);
+    --selection-bg: rgba(137,180,250,0.25);
+    --user-msg-color: #3a5a8a;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #181825;
+    --table-border: #45475a;
+    --scrollbar-thumb: #585b70;
+    --scrollbar-thumb-hover: #6c7086;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(30, 30, 46, 0.95);
+    --text-color: #cdd6f4;
+    --color-green: #a6e3a1;
+    --color-yellow: #f9e2af;
+    --color-red: #f38ba8;
+    --color-purple: #cba6f7;
+    --color-info: #89b4fa;
+    --color-orange: #fab387;
+    --color-success: #a6e3a1;
+    --text-bold: #cdd6f4;
+    --gradient-brand: linear-gradient(135deg, #89b4fa, #b4befe);
+    --gradient-success: linear-gradient(135deg, #a6e3a1, #c3f0c0);
+    --gradient-warning: linear-gradient(135deg, #f9e2af, #fab387);
+    --code-syntax-comment: #6c7086;
+    --code-syntax-keyword: #cba6f7;
+    --code-syntax-string: #a6e3a1;
+    --code-syntax-number: #fab387;
+    --code-syntax-function: #89b4fa;
+    --code-syntax-type: #f9e2af;
+    --code-syntax-variable: #f38ba8;
+    --code-syntax-property: #89dceb;
+    --code-syntax-operator: #94e2d5;
+    --code-syntax-tag: #f38ba8;
+    --code-syntax-attribute: #fab387;
+    --code-syntax-meta: #cdd6f4;
+    --code-syntax-heading: #89b4fa;
+    --code-syntax-link: #89b4fa;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   5. Catppuccin Latte
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="catppuccin-latte"] {
+    --bg-primary: #eff1f5;
+    --bg-secondary: #e6e9ef;
+    --bg-tertiary: #ccd0da;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #4c4f69;
+    --text-secondary: #5c5f77;
+    --text-muted: #8c8fa1;
+    --text-hint: #acb0be;
+    --border-color: #bcc0cc;
+    --accent-color: #1e66f5;
+    --accent-hover: #2a7de6;
+    --brand-color: #1e66f5;
+    --link-color: #1e66f5;
+    --focus-ring: rgba(30,102,245,0.4);
+    --selection-bg: rgba(30,102,245,0.2);
+    --user-msg-color: #6b7fbf;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.08);
+    --code-bg: #e6e9ef;
+    --table-border: #bcc0cc;
+    --scrollbar-thumb: #9ca0b0;
+    --scrollbar-thumb-hover: #8c8fa1;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(239, 241, 245, 0.9);
+    --text-color: #4c4f69;
+    --color-green: #40a02b;
+    --color-yellow: #df8e1d;
+    --color-red: #d20f39;
+    --color-purple: #8839ef;
+    --color-info: #1e66f5;
+    --color-orange: #fe640b;
+    --color-success: #40a02b;
+    --text-bold: #4c4f69;
+    --gradient-brand: linear-gradient(135deg, #1e66f5, #4a8bf8);
+    --gradient-success: linear-gradient(135deg, #40a02b, #5ec04a);
+    --gradient-warning: linear-gradient(135deg, #df8e1d, #fe640b);
+    --code-syntax-comment: #8c8fa1;
+    --code-syntax-keyword: #8839ef;
+    --code-syntax-string: #40a02b;
+    --code-syntax-number: #fe640b;
+    --code-syntax-function: #1e66f5;
+    --code-syntax-type: #df8e1d;
+    --code-syntax-variable: #d20f39;
+    --code-syntax-property: #04a5e5;
+    --code-syntax-operator: #179299;
+    --code-syntax-tag: #d20f39;
+    --code-syntax-attribute: #fe640b;
+    --code-syntax-meta: #4c4f69;
+    --code-syntax-heading: #1e66f5;
+    --code-syntax-link: #1e66f5;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   6. Dracula
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="dracula"] {
+    --bg-primary: #282a36;
+    --bg-secondary: #21222c;
+    --bg-tertiary: #343746;
+    --bg-elevated: #343746;
+    --bg-hover: rgba(255,255,255,0.06);
+    --bg-active: rgba(255,255,255,0.12);
+    --text-primary: #f8f8f2;
+    --text-secondary: #b0b0c4;
+    --text-muted: #6272a4;
+    --text-hint: #4d5b83;
+    --border-color: #44475a;
+    --accent-color: #bd93f9;
+    --accent-hover: #caa8fb;
+    --brand-color: #bd93f9;
+    --link-color: #8be9fd;
+    --focus-ring: rgba(189,147,249,0.4);
+    --selection-bg: rgba(189,147,249,0.25);
+    --user-msg-color: #6d5a99;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #21222c;
+    --table-border: #44475a;
+    --scrollbar-thumb: #44475a;
+    --scrollbar-thumb-hover: #6272a4;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(40, 42, 54, 0.95);
+    --text-color: #f8f8f2;
+    --color-green: #50fa7b;
+    --color-yellow: #f1fa8c;
+    --color-red: #ff5555;
+    --color-purple: #bd93f9;
+    --color-info: #8be9fd;
+    --color-orange: #ffb86c;
+    --color-success: #50fa7b;
+    --text-bold: #f8f8f2;
+    --gradient-brand: linear-gradient(135deg, #bd93f9, #caa8fb);
+    --gradient-success: linear-gradient(135deg, #50fa7b, #7dfa9c);
+    --gradient-warning: linear-gradient(135deg, #f1fa8c, #ffb86c);
+    --code-syntax-comment: #6272a4;
+    --code-syntax-keyword: #ff79c6;
+    --code-syntax-string: #f1fa8c;
+    --code-syntax-number: #bd93f9;
+    --code-syntax-function: #50fa7b;
+    --code-syntax-type: #8be9fd;
+    --code-syntax-variable: #f8f8f2;
+    --code-syntax-property: #8be9fd;
+    --code-syntax-operator: #ff79c6;
+    --code-syntax-tag: #ff79c6;
+    --code-syntax-attribute: #50fa7b;
+    --code-syntax-meta: #f8f8f2;
+    --code-syntax-heading: #bd93f9;
+    --code-syntax-link: #8be9fd;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   7. Nord
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="nord"] {
+    --bg-primary: #171e27;
+    --bg-secondary: #202833;
+    --bg-tertiary: #2a3441;
+    --bg-elevated: #2a3441;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #e6ecf4;
+    --text-secondary: #aab8c9;
+    --text-muted: #7f8fa5;
+    --text-hint: #5f6f85;
+    --border-color: #38434f;
+    --accent-color: #6cb2f0;
+    --accent-hover: #82c3fa;
+    --brand-color: #6cb2f0;
+    --link-color: #6cb2f0;
+    --focus-ring: rgba(108,178,240,0.4);
+    --selection-bg: rgba(108,178,240,0.25);
+    --user-msg-color: #4a6b8e;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #1b232e;
+    --table-border: #38434f;
+    --scrollbar-thumb: #3d4a58;
+    --scrollbar-thumb-hover: #4d5d6e;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(23, 30, 39, 0.95);
+    --text-color: #e6ecf4;
+    --color-green: #9ece6a;
+    --color-yellow: #e5c07b;
+    --color-red: #e06c75;
+    --color-purple: #c678dd;
+    --color-info: #7aa2f7;
+    --color-orange: #d19a66;
+    --color-success: #9ece6a;
+    --text-bold: #f0f4fa;
+    --gradient-brand: linear-gradient(135deg, #6cb2f0, #89ddff);
+    --gradient-success: linear-gradient(135deg, #9ece6a, #b8d988);
+    --gradient-warning: linear-gradient(135deg, #e5c07b, #d19a66);
+    --code-syntax-comment: #5e6f86;
+    --code-syntax-keyword: #7aa2f7;
+    --code-syntax-string: #9ece6a;
+    --code-syntax-number: #ff9e64;
+    --code-syntax-function: #89ddff;
+    --code-syntax-type: #5fd0a9;
+    --code-syntax-variable: #e6ecf4;
+    --code-syntax-property: #89ddff;
+    --code-syntax-operator: #7aa2f7;
+    --code-syntax-tag: #7aa2f7;
+    --code-syntax-attribute: #5fd0a9;
+    --code-syntax-meta: #e6ecf4;
+    --code-syntax-heading: #89ddff;
+    --code-syntax-link: #6cb2f0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   8. Tokyo Night
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="tokyo-night"] {
+    --bg-primary: #1a1b26;
+    --bg-secondary: #16161e;
+    --bg-tertiary: #292e42;
+    --bg-elevated: #292e42;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #c0caf5;
+    --text-secondary: #a9b1d6;
+    --text-muted: #7f87af;
+    --text-hint: #565f89;
+    --border-color: #292e42;
+    --accent-color: #7aa2f7;
+    --accent-hover: #89b4fa;
+    --brand-color: #7aa2f7;
+    --link-color: #7aa2f7;
+    --focus-ring: rgba(122,162,247,0.4);
+    --selection-bg: rgba(122,162,247,0.25);
+    --user-msg-color: #3a5a8a;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #16161e;
+    --table-border: #292e42;
+    --scrollbar-thumb: #3b4261;
+    --scrollbar-thumb-hover: #565f89;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(26, 27, 38, 0.95);
+    --text-color: #c0caf5;
+    --color-green: #9ece6a;
+    --color-yellow: #e0af68;
+    --color-red: #f7768e;
+    --color-purple: #bb9af7;
+    --color-info: #7aa2f7;
+    --color-orange: #ff9e64;
+    --color-success: #9ece6a;
+    --text-bold: #c0caf5;
+    --gradient-brand: linear-gradient(135deg, #7aa2f7, #89b4fa);
+    --gradient-success: linear-gradient(135deg, #9ece6a, #b8d988);
+    --gradient-warning: linear-gradient(135deg, #e0af68, #ff9e64);
+    --code-syntax-comment: #565f89;
+    --code-syntax-keyword: #bb9af7;
+    --code-syntax-string: #9ece6a;
+    --code-syntax-number: #ff9e64;
+    --code-syntax-function: #7aa2f7;
+    --code-syntax-type: #2ac3de;
+    --code-syntax-variable: #c0caf5;
+    --code-syntax-property: #7dcfff;
+    --code-syntax-operator: #89ddff;
+    --code-syntax-tag: #f7768e;
+    --code-syntax-attribute: #ff9e64;
+    --code-syntax-meta: #c0caf5;
+    --code-syntax-heading: #7aa2f7;
+    --code-syntax-link: #7aa2f7;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   9. Solarized Dark
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="solarized-dark"] {
+    --bg-primary: #002b36;
+    --bg-secondary: #0a3541;
+    --bg-tertiary: #12434f;
+    --bg-elevated: #12434f;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #a0b0b4;
+    --text-secondary: #8a9ba1;
+    --text-muted: #677f86;
+    --text-hint: #50666c;
+    --border-color: #1d4f5e;
+    --accent-color: #2e9fd8;
+    --accent-hover: #48b5ea;
+    --brand-color: #2e9fd8;
+    --link-color: #268bd2;
+    --focus-ring: rgba(46,159,216,0.4);
+    --selection-bg: rgba(46,159,216,0.25);
+    --user-msg-color: #2a6b76;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #06303b;
+    --table-border: #1d4f5e;
+    --scrollbar-thumb: #3a6a76;
+    --scrollbar-thumb-hover: #4b7d89;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(0, 43, 54, 0.95);
+    --text-color: #a0b0b4;
+    --color-green: #96a94a;
+    --color-yellow: #c89a2e;
+    --color-red: #dc4949;
+    --color-purple: #8a86c9;
+    --color-info: #268bd2;
+    --color-orange: #d0734a;
+    --color-success: #96a94a;
+    --text-bold: #c0cdd1;
+    --gradient-brand: linear-gradient(135deg, #268bd2, #2e9fd8);
+    --gradient-success: linear-gradient(135deg, #96a94a, #b4c45c);
+    --gradient-warning: linear-gradient(135deg, #c89a2e, #d0734a);
+    --code-syntax-comment: #677f86;
+    --code-syntax-keyword: #96a94a;
+    --code-syntax-string: #2aa198;
+    --code-syntax-number: #d75a8a;
+    --code-syntax-function: #268bd2;
+    --code-syntax-type: #c89a2e;
+    --code-syntax-variable: #d0734a;
+    --code-syntax-property: #268bd2;
+    --code-syntax-operator: #96a94a;
+    --code-syntax-tag: #268bd2;
+    --code-syntax-attribute: #2aa198;
+    --code-syntax-meta: #a0b0b4;
+    --code-syntax-heading: #268bd2;
+    --code-syntax-link: #268bd2;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   9b. Solarized Deep（Solarized 暗色增强版：更深背景、更高对比、保留青蓝基调）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="solarized-deep"] {
+    --bg-primary: #0c141d;
+    --bg-secondary: #15212b;
+    --bg-tertiary: #1d2b37;
+    --bg-elevated: #1d2b37;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #dce5ec;
+    --text-secondary: #a4b3c2;
+    --text-muted: #7d8ea0;
+    --text-hint: #5d6e80;
+    --border-color: #2a3a48;
+    --accent-color: #3bb8e0;
+    --accent-hover: #4fc8f0;
+    --brand-color: #3bb8e0;
+    --link-color: #3bb8e0;
+    --focus-ring: rgba(59,184,224,0.4);
+    --selection-bg: rgba(59,184,224,0.25);
+    --user-msg-color: #3a6d85;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #101b25;
+    --table-border: #2a3a48;
+    --scrollbar-thumb: #33506a;
+    --scrollbar-thumb-hover: #3f6280;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(12, 20, 29, 0.95);
+    --text-color: #dce5ec;
+    --color-green: #8fd07a;
+    --color-yellow: #e0b45c;
+    --color-red: #e06262;
+    --color-purple: #a78fd8;
+    --color-info: #4fc8f0;
+    --color-orange: #e07a4a;
+    --color-success: #8fd07a;
+    --text-bold: #f0f5fa;
+    --gradient-brand: linear-gradient(135deg, #3bb8e0, #5ad0f0);
+    --gradient-success: linear-gradient(135deg, #8fd07a, #a8e094);
+    --gradient-warning: linear-gradient(135deg, #e0b45c, #e07a4a);
+    --code-syntax-comment: #6b7f90;
+    --code-syntax-keyword: #8fd07a;
+    --code-syntax-string: #4fc8b0;
+    --code-syntax-number: #e06c9c;
+    --code-syntax-function: #3bb8e0;
+    --code-syntax-type: #e0b45c;
+    --code-syntax-variable: #e07a4a;
+    --code-syntax-property: #3bb8e0;
+    --code-syntax-operator: #8fd07a;
+    --code-syntax-tag: #3bb8e0;
+    --code-syntax-attribute: #4fc8b0;
+    --code-syntax-meta: #dce5ec;
+    --code-syntax-heading: #3bb8e0;
+    --code-syntax-link: #3bb8e0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   10. Solarized Light
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="solarized-light"] {
+    --bg-primary: #fdf6e3;
+    --bg-secondary: #eee8d5;
+    --bg-tertiary: #e0dcc8;
+    --bg-elevated: #fffdf5;
+    --bg-hover: rgba(0,0,0,0.05);
+    --bg-active: rgba(0,0,0,0.09);
+    --text-primary: #657b83;
+    --text-secondary: #586e75;
+    --text-muted: #93a1a1;
+    --text-hint: #a8b4b4;
+    --border-color: #d6ccb6;
+    --accent-color: #268bd2;
+    --accent-hover: #2aa198;
+    --brand-color: #268bd2;
+    --link-color: #268bd2;
+    --focus-ring: rgba(38,139,210,0.4);
+    --selection-bg: rgba(38,139,210,0.2);
+    --user-msg-color: #6b8fb5;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.08);
+    --code-bg: #eee8d5;
+    --table-border: #d6ccb6;
+    --scrollbar-thumb: #93a1a1;
+    --scrollbar-thumb-hover: #7d8a8a;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(253, 246, 227, 0.9);
+    --text-color: #657b83;
+    --color-green: #859900;
+    --color-yellow: #b58900;
+    --color-red: #dc322f;
+    --color-purple: #6c71c4;
+    --color-info: #268bd2;
+    --color-orange: #cb4b16;
+    --color-success: #859900;
+    --text-bold: #586e75;
+    --gradient-brand: linear-gradient(135deg, #268bd2, #2aa198);
+    --gradient-success: linear-gradient(135deg, #859900, #a5b320);
+    --gradient-warning: linear-gradient(135deg, #b58900, #cb4b16);
+    --code-syntax-comment: #93a1a1;
+    --code-syntax-keyword: #859900;
+    --code-syntax-string: #2aa198;
+    --code-syntax-number: #d33682;
+    --code-syntax-function: #268bd2;
+    --code-syntax-type: #b58900;
+    --code-syntax-variable: #cb4b16;
+    --code-syntax-property: #268bd2;
+    --code-syntax-operator: #859900;
+    --code-syntax-tag: #268bd2;
+    --code-syntax-attribute: #2aa198;
+    --code-syntax-meta: #657b83;
+    --code-syntax-heading: #268bd2;
+    --code-syntax-link: #268bd2;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   11. Gruvbox Dark
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="gruvbox-dark"] {
+    --bg-primary: #282828;
+    --bg-secondary: #1d2021;
+    --bg-tertiary: #3c3836;
+    --bg-elevated: #3c3836;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #ebdbb2;
+    --text-secondary: #d5c4a1;
+    --text-muted: #9d9188;
+    --text-hint: #7c6f64;
+    --border-color: #3c3836;
+    --accent-color: #fe8019;
+    --accent-hover: #fabd2f;
+    --brand-color: #fe8019;
+    --link-color: #83a598;
+    --focus-ring: rgba(254,128,25,0.4);
+    --selection-bg: rgba(254,128,25,0.25);
+    --user-msg-color: #8b6a3c;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #1d2021;
+    --table-border: #3c3836;
+    --scrollbar-thumb: #504945;
+    --scrollbar-thumb-hover: #665c54;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(40, 40, 40, 0.95);
+    --text-color: #ebdbb2;
+    --color-green: #b8bb26;
+    --color-yellow: #fabd2f;
+    --color-red: #fb4934;
+    --color-purple: #d3869b;
+    --color-info: #83a598;
+    --color-orange: #fe8019;
+    --color-success: #b8bb26;
+    --text-bold: #fbf1c7;
+    --gradient-brand: linear-gradient(135deg, #fe8019, #fabd2f);
+    --gradient-success: linear-gradient(135deg, #b8bb26, #d0d23a);
+    --gradient-warning: linear-gradient(135deg, #fabd2f, #fe8019);
+    --code-syntax-comment: #665c54;
+    --code-syntax-keyword: #fb4934;
+    --code-syntax-string: #b8bb26;
+    --code-syntax-number: #d3869b;
+    --code-syntax-function: #fabd2f;
+    --code-syntax-type: #8ec07c;
+    --code-syntax-variable: #ebdbb2;
+    --code-syntax-property: #83a598;
+    --code-syntax-operator: #fe8019;
+    --code-syntax-tag: #fe8019;
+    --code-syntax-attribute: #b8bb26;
+    --code-syntax-meta: #ebdbb2;
+    --code-syntax-heading: #fe8019;
+    --code-syntax-link: #83a598;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   12. Gruvbox Light
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="gruvbox-light"] {
+    --bg-primary: #fbf1c7;
+    --bg-secondary: #f2e5bc;
+    --bg-tertiary: #ebdbb2;
+    --bg-elevated: #fffdf0;
+    --bg-hover: rgba(0,0,0,0.05);
+    --bg-active: rgba(0,0,0,0.09);
+    --text-primary: #3c3836;
+    --text-secondary: #504945;
+    --text-muted: #928374;
+    --text-hint: #a89984;
+    --border-color: #d5c4a1;
+    --accent-color: #af3a03;
+    --accent-hover: #d65d0e;
+    --brand-color: #af3a03;
+    --link-color: #076678;
+    --focus-ring: rgba(175,58,3,0.4);
+    --selection-bg: rgba(175,58,3,0.2);
+    --user-msg-color: #8b6a3c;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.08);
+    --code-bg: #f2e5bc;
+    --table-border: #d5c4a1;
+    --scrollbar-thumb: #928374;
+    --scrollbar-thumb-hover: #7c6f64;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(251, 241, 199, 0.9);
+    --text-color: #3c3836;
+    --color-green: #79740e;
+    --color-yellow: #b57614;
+    --color-red: #9d0006;
+    --color-purple: #8f3f71;
+    --color-info: #076678;
+    --color-orange: #af3a03;
+    --color-success: #79740e;
+    --text-bold: #282828;
+    --gradient-brand: linear-gradient(135deg, #af3a03, #d65d0e);
+    --gradient-success: linear-gradient(135deg, #79740e, #9a9420);
+    --gradient-warning: linear-gradient(135deg, #b57614, #af3a03);
+    --code-syntax-comment: #928374;
+    --code-syntax-keyword: #9d0006;
+    --code-syntax-string: #79740e;
+    --code-syntax-number: #8f3f71;
+    --code-syntax-function: #b57614;
+    --code-syntax-type: #427b58;
+    --code-syntax-variable: #3c3836;
+    --code-syntax-property: #076678;
+    --code-syntax-operator: #af3a03;
+    --code-syntax-tag: #af3a03;
+    --code-syntax-attribute: #79740e;
+    --code-syntax-meta: #3c3836;
+    --code-syntax-heading: #af3a03;
+    --code-syntax-link: #076678;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   13. High Contrast Dark
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="high-contrast-dark"] {
+    --bg-primary: #000000;
+    --bg-secondary: #0a0a0a;
+    --bg-tertiary: #1a1a1a;
+    --bg-elevated: #1a1a1a;
+    --bg-hover: rgba(255,255,255,0.08);
+    --bg-active: rgba(255,255,255,0.15);
+    --text-primary: #ffffff;
+    --text-secondary: #e0e0e0;
+    --text-muted: #a0a0a0;
+    --text-hint: #808080;
+    --border-color: #555555;
+    --accent-color: #00ccff;
+    --accent-hover: #33ddff;
+    --brand-color: #00ccff;
+    --link-color: #00ccff;
+    --focus-ring: rgba(0,204,255,0.5);
+    --selection-bg: rgba(0,204,255,0.3);
+    --user-msg-color: #007aa0;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.5);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.6);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.6);
+    --code-bg: #0a0a0a;
+    --table-border: #555555;
+    --scrollbar-thumb: #666666;
+    --scrollbar-thumb-hover: #888888;
+    --lb-bg: rgba(0,0,0,0.95);
+    --lb-toolbar-bg: rgba(26, 26, 26, 0.95);
+    --text-color: #ffffff;
+    --color-green: #00ff66;
+    --color-yellow: #ffff00;
+    --color-red: #ff3333;
+    --color-purple: #cc66ff;
+    --color-info: #00ccff;
+    --color-orange: #ff9900;
+    --color-success: #00ff66;
+    --text-bold: #ffffff;
+    --gradient-brand: linear-gradient(135deg, #00ccff, #33ddff);
+    --gradient-success: linear-gradient(135deg, #00ff66, #33ff85);
+    --gradient-warning: linear-gradient(135deg, #ffff00, #ff9900);
+    --code-syntax-comment: #999999;
+    --code-syntax-keyword: #ff6699;
+    --code-syntax-string: #66ff66;
+    --code-syntax-number: #ffcc00;
+    --code-syntax-function: #00ccff;
+    --code-syntax-type: #00ffcc;
+    --code-syntax-variable: #ffffff;
+    --code-syntax-property: #00ccff;
+    --code-syntax-operator: #ff9900;
+    --code-syntax-tag: #ff6699;
+    --code-syntax-attribute: #ffcc00;
+    --code-syntax-meta: #ffffff;
+    --code-syntax-heading: #00ccff;
+    --code-syntax-link: #00ccff;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   14. High Contrast Light
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="high-contrast-light"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f5f5;
+    --bg-tertiary: #e0e0e0;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0,0,0,0.06);
+    --bg-active: rgba(0,0,0,0.12);
+    --text-primary: #000000;
+    --text-secondary: #1a1a1a;
+    --text-muted: #444444;
+    --text-hint: #666666;
+    --border-color: #000000;
+    --accent-color: #0055cc;
+    --accent-hover: #0044aa;
+    --brand-color: #0055cc;
+    --link-color: #0055cc;
+    --focus-ring: rgba(0,85,204,0.45);
+    --selection-bg: rgba(0,85,204,0.25);
+    --user-msg-color: #003377;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.15);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.2);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.2);
+    --code-bg: #f5f5f5;
+    --table-border: #000000;
+    --scrollbar-thumb: #333333;
+    --scrollbar-thumb-hover: #1a1a1a;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(255, 255, 255, 0.95);
+    --text-color: #000000;
+    --color-green: #007700;
+    --color-yellow: #886600;
+    --color-red: #cc0000;
+    --color-purple: #6600aa;
+    --color-info: #0055cc;
+    --color-orange: #cc5500;
+    --color-success: #007700;
+    --text-bold: #000000;
+    --gradient-brand: linear-gradient(135deg, #0055cc, #1a66dd);
+    --gradient-success: linear-gradient(135deg, #007700, #1a9900);
+    --gradient-warning: linear-gradient(135deg, #886600, #cc5500);
+    --code-syntax-comment: #666666;
+    --code-syntax-keyword: #990055;
+    --code-syntax-string: #007700;
+    --code-syntax-number: #886600;
+    --code-syntax-function: #0055cc;
+    --code-syntax-type: #007788;
+    --code-syntax-variable: #000000;
+    --code-syntax-property: #0055cc;
+    --code-syntax-operator: #cc5500;
+    --code-syntax-tag: #990055;
+    --code-syntax-attribute: #886600;
+    --code-syntax-meta: #000000;
+    --code-syntax-heading: #0055cc;
+    --code-syntax-link: #0055cc;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   15. Night Owl
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="night-owl"] {
+    --bg-primary: #011627;
+    --bg-secondary: #001122;
+    --bg-tertiary: #0b253a;
+    --bg-elevated: #0b253a;
+    --bg-hover: rgba(255,255,255,0.06);
+    --bg-active: rgba(255,255,255,0.12);
+    --text-primary: #d6deeb;
+    --text-secondary: #a0b4cc;
+    --text-muted: #5f7e97;
+    --text-hint: #45677e;
+    --border-color: #1b3b5b;
+    --accent-color: #82aaff;
+    --accent-hover: #addbff;
+    --brand-color: #82aaff;
+    --link-color: #82aaff;
+    --focus-ring: rgba(130,170,255,0.4);
+    --selection-bg: rgba(130,170,255,0.25);
+    --user-msg-color: #2a4a6a;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #001122;
+    --table-border: #1b3b5b;
+    --scrollbar-thumb: #2a4a6a;
+    --scrollbar-thumb-hover: #3a607f;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(1, 22, 39, 0.95);
+    --text-color: #d6deeb;
+    --color-green: #addb67;
+    --color-yellow: #ecc48d;
+    --color-red: #ef5350;
+    --color-purple: #c792ea;
+    --color-info: #82aaff;
+    --color-orange: #f78c6c;
+    --color-success: #addb67;
+    --text-bold: #e2e8f0;
+    --gradient-brand: linear-gradient(135deg, #82aaff, #addbff);
+    --gradient-success: linear-gradient(135deg, #addb67, #c6e88a);
+    --gradient-warning: linear-gradient(135deg, #ecc48d, #f78c6c);
+    --code-syntax-comment: #637777;
+    --code-syntax-keyword: #c792ea;
+    --code-syntax-string: #ecc48d;
+    --code-syntax-number: #f78c6c;
+    --code-syntax-function: #82aaff;
+    --code-syntax-type: #addb67;
+    --code-syntax-variable: #addb67;
+    --code-syntax-property: #80d4ff;
+    --code-syntax-operator: #80d4ff;
+    --code-syntax-tag: #7fdbca;
+    --code-syntax-attribute: #addb67;
+    --code-syntax-meta: #d6deeb;
+    --code-syntax-heading: #82aaff;
+    --code-syntax-link: #82aaff;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   16. Ayu Dark
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="ayu-dark"] {
+    --bg-primary: #0a0e14;
+    --bg-secondary: #0d1017;
+    --bg-tertiary: #131721;
+    --bg-elevated: #131721;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #b3b1ad;
+    --text-secondary: #8f8f8a;
+    --text-muted: #626a73;
+    --text-hint: #4d545d;
+    --border-color: #1a1f29;
+    --accent-color: #e6b450;
+    --accent-hover: #f0c674;
+    --brand-color: #e6b450;
+    --link-color: #59c2ff;
+    --focus-ring: rgba(230,180,80,0.4);
+    --selection-bg: rgba(230,180,80,0.25);
+    --user-msg-color: #6b5a2c;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #0d1017;
+    --table-border: #1a1f29;
+    --scrollbar-thumb: #2a3040;
+    --scrollbar-thumb-hover: #3a4255;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(10, 14, 20, 0.95);
+    --text-color: #b3b1ad;
+    --color-green: #c2d94c;
+    --color-yellow: #ffb454;
+    --color-red: #f07178;
+    --color-purple: #d2a6ff;
+    --color-info: #59c2ff;
+    --color-orange: #ff8f40;
+    --color-success: #c2d94c;
+    --text-bold: #e6e1cf;
+    --gradient-brand: linear-gradient(135deg, #e6b450, #f0c674);
+    --gradient-success: linear-gradient(135deg, #c2d94c, #d5e96e);
+    --gradient-warning: linear-gradient(135deg, #ffb454, #ff8f40);
+    --code-syntax-comment: #626a73;
+    --code-syntax-keyword: #ff8f40;
+    --code-syntax-string: #c2d94c;
+    --code-syntax-number: #e6b450;
+    --code-syntax-function: #ffb454;
+    --code-syntax-type: #59c2ff;
+    --code-syntax-variable: #b3b1ad;
+    --code-syntax-property: #f29668;
+    --code-syntax-operator: #f29668;
+    --code-syntax-tag: #39bae6;
+    --code-syntax-attribute: #ffb454;
+    --code-syntax-meta: #b3b1ad;
+    --code-syntax-heading: #59c2ff;
+    --code-syntax-link: #39bae6;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   17. Vitesse Dark
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="vitesse-dark"] {
+    --bg-primary: #121212;
+    --bg-secondary: #181818;
+    --bg-tertiary: #222222;
+    --bg-elevated: #222222;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #dbd7ca;
+    --text-secondary: #c8c5b8;
+    --text-muted: #758575;
+    --text-hint: #5c6a5c;
+    --border-color: #2e2e2e;
+    --accent-color: #4d9375;
+    --accent-hover: #6aa88a;
+    --brand-color: #4d9375;
+    --link-color: #6da4b6;
+    --focus-ring: rgba(77,147,117,0.4);
+    --selection-bg: rgba(77,147,117,0.25);
+    --user-msg-color: #2a5a42;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #181818;
+    --table-border: #2e2e2e;
+    --scrollbar-thumb: #3a3a3a;
+    --scrollbar-thumb-hover: #4a4a4a;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(18, 18, 18, 0.95);
+    --text-color: #dbd7ca;
+    --color-green: #4d9375;
+    --color-yellow: #e6c07b;
+    --color-red: #cb7676;
+    --color-purple: #c4a7d2;
+    --color-info: #5da9a7;
+    --color-orange: #dca06a;
+    --color-success: #4d9375;
+    --text-bold: #e2dfd4;
+    --gradient-brand: linear-gradient(135deg, #4d9375, #6aa88a);
+    --gradient-success: linear-gradient(135deg, #4d9375, #6aa88a);
+    --gradient-warning: linear-gradient(135deg, #e6c07b, #dca06a);
+    --code-syntax-comment: #758575;
+    --code-syntax-keyword: #4d9375;
+    --code-syntax-string: #c98a7d;
+    --code-syntax-number: #4c9a91;
+    --code-syntax-function: #80a665;
+    --code-syntax-type: #5da9a7;
+    --code-syntax-variable: #bd976a;
+    --code-syntax-property: #b8a965;
+    --code-syntax-operator: #cb7676;
+    --code-syntax-tag: #6da4b6;
+    --code-syntax-attribute: #c98a7d;
+    --code-syntax-meta: #dbd7ca;
+    --code-syntax-heading: #4d9375;
+    --code-syntax-link: #6da4b6;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   18. Rosé Pine（暗色、柔和粉紫）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="rose-pine"] {
+    --bg-primary: #191724;
+    --bg-secondary: #1f1d2e;
+    --bg-tertiary: #26233a;
+    --bg-elevated: #26233a;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #e0def4;
+    --text-secondary: #908caa;
+    --text-muted: #6e6a86;
+    --text-hint: #595577;
+    --border-color: #413f5e;
+    --accent-color: #ebbcba;
+    --accent-hover: #f6c5c2;
+    --brand-color: #ebbcba;
+    --link-color: #31748f;
+    --focus-ring: rgba(235,188,186,0.4);
+    --selection-bg: rgba(235,188,186,0.25);
+    --user-msg-color: #5a5473;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #1f1d2e;
+    --table-border: #413f5e;
+    --scrollbar-thumb: #403d5c;
+    --scrollbar-thumb-hover: #524f73;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(25, 23, 36, 0.95);
+    --text-color: #e0def4;
+    --color-green: #9ccfd8;
+    --color-yellow: #f6c177;
+    --color-red: #eb6f92;
+    --color-purple: #c4a7e7;
+    --color-info: #31748f;
+    --color-orange: #ea9a97;
+    --color-success: #9ccfd8;
+    --text-bold: #f0eef9;
+    --gradient-brand: linear-gradient(135deg, #ebbcba, #c4a7e7);
+    --gradient-success: linear-gradient(135deg, #9ccfd8, #b5dee5);
+    --gradient-warning: linear-gradient(135deg, #f6c177, #ea9a97);
+    --code-syntax-comment: #6e6a86;
+    --code-syntax-keyword: #c4a7e7;
+    --code-syntax-string: #9ccfd8;
+    --code-syntax-number: #f6c177;
+    --code-syntax-function: #ebbcba;
+    --code-syntax-type: #f6c177;
+    --code-syntax-variable: #e0def4;
+    --code-syntax-property: #31748f;
+    --code-syntax-operator: #ea9a97;
+    --code-syntax-tag: #eb6f92;
+    --code-syntax-attribute: #9ccfd8;
+    --code-syntax-meta: #e0def4;
+    --code-syntax-heading: #ebbcba;
+    --code-syntax-link: #31748f;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   19. Everforest Dark（暗色、柔和森林绿）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="everforest-dark"] {
+    --bg-primary: #1e2326;
+    --bg-secondary: #22282b;
+    --bg-tertiary: #2d353b;
+    --bg-elevated: #2d353b;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #d3c6aa;
+    --text-secondary: #a6ad96;
+    --text-muted: #859289;
+    --text-hint: #6a766e;
+    --border-color: #3d484d;
+    --accent-color: #a7c080;
+    --accent-hover: #b8c890;
+    --brand-color: #a7c080;
+    --link-color: #7fbbb3;
+    --focus-ring: rgba(167,192,128,0.4);
+    --selection-bg: rgba(167,192,128,0.25);
+    --user-msg-color: #55684f;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #22282b;
+    --table-border: #3d484d;
+    --scrollbar-thumb: #3a464b;
+    --scrollbar-thumb-hover: #4d5a60;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(30, 35, 38, 0.95);
+    --text-color: #d3c6aa;
+    --color-green: #a7c080;
+    --color-yellow: #dbbc7f;
+    --color-red: #e67e80;
+    --color-purple: #d699b6;
+    --color-info: #7fbbb3;
+    --color-orange: #e69875;
+    --color-success: #a7c080;
+    --text-bold: #dfd5b9;
+    --gradient-brand: linear-gradient(135deg, #a7c080, #b8c890);
+    --gradient-success: linear-gradient(135deg, #a7c080, #b8c890);
+    --gradient-warning: linear-gradient(135deg, #dbbc7f, #e69875);
+    --code-syntax-comment: #859289;
+    --code-syntax-keyword: #e67e80;
+    --code-syntax-string: #a7c080;
+    --code-syntax-number: #e69875;
+    --code-syntax-function: #7fbbb3;
+    --code-syntax-type: #dbbc7f;
+    --code-syntax-variable: #d3c6aa;
+    --code-syntax-property: #83c092;
+    --code-syntax-operator: #e67e80;
+    --code-syntax-tag: #e69875;
+    --code-syntax-attribute: #a7c080;
+    --code-syntax-meta: #d3c6aa;
+    --code-syntax-heading: #7fbbb3;
+    --code-syntax-link: #7fbbb3;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   20. Kanagawa（暗色、和风墨蓝）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="kanagawa"] {
+    --bg-primary: #1f1f28;
+    --bg-secondary: #16161d;
+    --bg-tertiary: #2a2a37;
+    --bg-elevated: #2a2a37;
+    --bg-hover: rgba(255,255,255,0.05);
+    --bg-active: rgba(255,255,255,0.1);
+    --text-primary: #dcd7ba;
+    --text-secondary: #c8c093;
+    --text-muted: #727169;
+    --text-hint: #5c5a52;
+    --border-color: #363646;
+    --accent-color: #7e9cd8;
+    --accent-hover: #9cabde;
+    --brand-color: #7e9cd8;
+    --link-color: #7e9cd8;
+    --focus-ring: rgba(126,156,216,0.4);
+    --selection-bg: rgba(126,156,216,0.25);
+    --user-msg-color: #3d4a6b;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #16161d;
+    --table-border: #363646;
+    --scrollbar-thumb: #363646;
+    --scrollbar-thumb-hover: #4a4a5c;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(31, 31, 40, 0.95);
+    --text-color: #dcd7ba;
+    --color-green: #76946a;
+    --color-yellow: #e6c384;
+    --color-red: #c34043;
+    --color-purple: #957fb8;
+    --color-info: #7e9cd8;
+    --color-orange: #dca561;
+    --color-success: #76946a;
+    --text-bold: #e8e4c9;
+    --gradient-brand: linear-gradient(135deg, #7e9cd8, #9cabde);
+    --gradient-success: linear-gradient(135deg, #76946a, #8dab80);
+    --gradient-warning: linear-gradient(135deg, #e6c384, #dca561);
+    --code-syntax-comment: #727169;
+    --code-syntax-keyword: #957fb8;
+    --code-syntax-string: #98bb6c;
+    --code-syntax-number: #e6c384;
+    --code-syntax-function: #7e9cd8;
+    --code-syntax-type: #e6c384;
+    --code-syntax-variable: #dcd7ba;
+    --code-syntax-property: #7e9cd8;
+    --code-syntax-operator: #957fb8;
+    --code-syntax-tag: #c34043;
+    --code-syntax-attribute: #dca561;
+    --code-syntax-meta: #dcd7ba;
+    --code-syntax-heading: #7e9cd8;
+    --code-syntax-link: #7e9cd8;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   21. One Light（VS Code One Light Pro 官方配色）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="one-light"] {
+    --bg-primary: #fafafa;
+    --bg-secondary: #f0f0f0;
+    --bg-tertiary: #e5e5e5;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #383a42;
+    --text-secondary: #4f525e;
+    --text-muted: #a0a1a7;
+    --text-hint: #b8b8c0;
+    --border-color: #e0e0e0;
+    --accent-color: #4078f2;
+    --accent-hover: #2c65d8;
+    --brand-color: #4078f2;
+    --link-color: #4078f2;
+    --focus-ring: rgba(64,120,242,0.4);
+    --selection-bg: rgba(64,120,242,0.2);
+    --user-msg-color: #5b7fbf;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #f0f0f0;
+    --table-border: #e0e0e0;
+    --scrollbar-thumb: #c8c8cd;
+    --scrollbar-thumb-hover: #b0b0b8;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(250, 250, 250, 0.9);
+    --text-color: #383a42;
+    --color-green: #50a14f;
+    --color-yellow: #c18401;
+    --color-red: #e45649;
+    --color-purple: #a626a4;
+    --color-info: #4078f2;
+    --color-orange: #d9730d;
+    --color-success: #50a14f;
+    --text-bold: #202227;
+    --gradient-brand: linear-gradient(135deg, #4078f2, #6b9bf8);
+    --gradient-success: linear-gradient(135deg, #50a14f, #72c272);
+    --gradient-warning: linear-gradient(135deg, #c18401, #d9730d);
+    --code-syntax-comment: #a0a1a7;
+    --code-syntax-keyword: #a626a4;
+    --code-syntax-string: #50a14f;
+    --code-syntax-number: #986801;
+    --code-syntax-function: #4078f2;
+    --code-syntax-type: #c18401;
+    --code-syntax-variable: #e45649;
+    --code-syntax-property: #4078f2;
+    --code-syntax-operator: #0184bc;
+    --code-syntax-tag: #e45649;
+    --code-syntax-attribute: #986801;
+    --code-syntax-meta: #383a42;
+    --code-syntax-heading: #4078f2;
+    --code-syntax-link: #4078f2;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   22. Everforest Light（柔和森林绿浅色，与 everforest-dark 配对）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="everforest-light"] {
+    --bg-primary: #fdf6e3;
+    --bg-secondary: #f2e9d0;
+    --bg-tertiary: #e5dcc0;
+    --bg-elevated: #fffaf0;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #5c6a72;
+    --text-secondary: #6f7b80;
+    --text-muted: #939f91;
+    --text-hint: #a8b3a4;
+    --border-color: #d8cdb1;
+    --accent-color: #7a8478;
+    --accent-hover: #8b9885;
+    --brand-color: #7a8478;
+    --link-color: #7fbbb3;
+    --focus-ring: rgba(122,132,120,0.4);
+    --selection-bg: rgba(122,132,120,0.2);
+    --user-msg-color: #6b8fb5;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #f2e9d0;
+    --table-border: #d8cdb1;
+    --scrollbar-thumb: #b6c0ad;
+    --scrollbar-thumb-hover: #a0ab98;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(253, 246, 227, 0.9);
+    --text-color: #5c6a72;
+    --color-green: #829c6a;
+    --color-yellow: #c7a653;
+    --color-red: #c65c5c;
+    --color-purple: #9b6fb8;
+    --color-info: #7fbbb3;
+    --color-orange: #d1914f;
+    --color-success: #829c6a;
+    --text-bold: #414b50;
+    --gradient-brand: linear-gradient(135deg, #7a8478, #9ab07a);
+    --gradient-success: linear-gradient(135deg, #829c6a, #9db883);
+    --gradient-warning: linear-gradient(135deg, #c7a653, #d1914f);
+    --code-syntax-comment: #939f91;
+    --code-syntax-keyword: #b4567a;
+    --code-syntax-string: #829c6a;
+    --code-syntax-number: #d1914f;
+    --code-syntax-function: #7fbbb3;
+    --code-syntax-type: #c7a653;
+    --code-syntax-variable: #5c6a72;
+    --code-syntax-property: #7a9e6b;
+    --code-syntax-operator: #b4567a;
+    --code-syntax-tag: #c65c5c;
+    --code-syntax-attribute: #829c6a;
+    --code-syntax-meta: #5c6a72;
+    --code-syntax-heading: #7fbbb3;
+    --code-syntax-link: #7fbbb3;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   23. Ayu Light（Ayu 亮色，暖橙 accent，与 ayu-dark 配对）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="ayu-light"] {
+    --bg-primary: #fafafa;
+    --bg-secondary: #f3f3f3;
+    --bg-tertiary: #e8e8e8;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #5c6166;
+    --text-secondary: #777c81;
+    --text-muted: #a0a5aa;
+    --text-hint: #b8bdc2;
+    --border-color: #e3e3e3;
+    --accent-color: #ff9940;
+    --accent-hover: #f2872a;
+    --brand-color: #ff9940;
+    --link-color: #399ee6;
+    --focus-ring: rgba(255,153,64,0.4);
+    --selection-bg: rgba(255,153,64,0.2);
+    --user-msg-color: #c77b3a;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #f3f3f3;
+    --table-border: #e3e3e3;
+    --scrollbar-thumb: #c9c9c9;
+    --scrollbar-thumb-hover: #b0b0b0;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(250, 250, 250, 0.9);
+    --text-color: #5c6166;
+    --color-green: #86b300;
+    --color-yellow: #f2ae49;
+    --color-red: #f51818;
+    --color-purple: #a37acc;
+    --color-info: #399ee6;
+    --color-orange: #ff9940;
+    --color-success: #86b300;
+    --text-bold: #33373b;
+    --gradient-brand: linear-gradient(135deg, #ff9940, #ffb870);
+    --gradient-success: linear-gradient(135deg, #86b300, #a2cc2e);
+    --gradient-warning: linear-gradient(135deg, #f2ae49, #ff9940);
+    --code-syntax-comment: #a0a5aa;
+    --code-syntax-keyword: #f51818;
+    --code-syntax-string: #86b300;
+    --code-syntax-number: #f2ae49;
+    --code-syntax-function: #399ee6;
+    --code-syntax-type: #f07178;
+    --code-syntax-variable: #5c6166;
+    --code-syntax-property: #f2ae49;
+    --code-syntax-operator: #399ee6;
+    --code-syntax-tag: #f51818;
+    --code-syntax-attribute: #86b300;
+    --code-syntax-meta: #5c6166;
+    --code-syntax-heading: #399ee6;
+    --code-syntax-link: #399ee6;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   24. Nord Light（Nord 官方浅色，冰雪蓝 accent，与 nord 配对）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="nord-light"] {
+    --bg-primary: #eceff4;
+    --bg-secondary: #e5e9f0;
+    --bg-tertiary: #d8dee9;
+    --bg-elevated: #f6f8fa;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #2e3440;
+    --text-secondary: #4c566a;
+    --text-muted: #8a93a5;
+    --text-hint: #a5adbb;
+    --border-color: #d5dbe5;
+    --accent-color: #5e81ac;
+    --accent-hover: #6b95c0;
+    --brand-color: #5e81ac;
+    --link-color: #5e81ac;
+    --focus-ring: rgba(94,129,172,0.4);
+    --selection-bg: rgba(94,129,172,0.2);
+    --user-msg-color: #5e7fae;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #e5e9f0;
+    --table-border: #d5dbe5;
+    --scrollbar-thumb: #b8c0cf;
+    --scrollbar-thumb-hover: #9fa9ba;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(236, 239, 244, 0.9);
+    --text-color: #2e3440;
+    --color-green: #8fbc8f;
+    --color-yellow: #d9a63e;
+    --color-red: #bf616a;
+    --color-purple: #b48ead;
+    --color-info: #5e81ac;
+    --color-orange: #d08770;
+    --color-success: #8fbc8f;
+    --text-bold: #242933;
+    --gradient-brand: linear-gradient(135deg, #5e81ac, #81a1c1);
+    --gradient-success: linear-gradient(135deg, #8fbc8f, #a8cfa8);
+    --gradient-warning: linear-gradient(135deg, #d9a63e, #d08770);
+    --code-syntax-comment: #8a93a5;
+    --code-syntax-keyword: #b48ead;
+    --code-syntax-string: #8fbc8f;
+    --code-syntax-number: #d08770;
+    --code-syntax-function: #5e81ac;
+    --code-syntax-type: #d9a63e;
+    --code-syntax-variable: #2e3440;
+    --code-syntax-property: #5e81ac;
+    --code-syntax-operator: #b48ead;
+    --code-syntax-tag: #bf616a;
+    --code-syntax-attribute: #8fbc8f;
+    --code-syntax-meta: #2e3440;
+    --code-syntax-heading: #5e81ac;
+    --code-syntax-link: #5e81ac;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   27. Light Modern（VS Code 当前默认亮色）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="light-modern"] {
+    --bg-primary: #fafafa;
+    --bg-secondary: #f3f3f3;
+    --bg-tertiary: #e9e9e9;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #1a1a1a;
+    --text-secondary: #444446;
+    --text-muted: #717175;
+    --text-hint: #929298;
+    --border-color: #d4d4d4;
+    --accent-color: #0b57d0;
+    --accent-hover: #0b4aa9;
+    --brand-color: #0b57d0;
+    --link-color: #0b57d0;
+    --focus-ring: rgba(11,87,208,0.4);
+    --selection-bg: rgba(11,87,208,0.2);
+    --user-msg-color: #5b7fbf;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #f3f3f3;
+    --table-border: #d4d4d4;
+    --scrollbar-thumb: #c1c1c4;
+    --scrollbar-thumb-hover: #a8a8ad;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(250, 250, 250, 0.9);
+    --text-color: #1a1a1a;
+    --color-green: #267f00;
+    --color-yellow: #a16b00;
+    --color-red: #d7002a;
+    --color-purple: #7f2fb0;
+    --color-info: #0b57d0;
+    --color-orange: #c94b00;
+    --color-success: #267f00;
+    --text-bold: #111113;
+    --gradient-brand: linear-gradient(135deg, #0b57d0, #4a89e0);
+    --gradient-success: linear-gradient(135deg, #267f00, #4ea614);
+    --gradient-warning: linear-gradient(135deg, #a16b00, #c94b00);
+    --code-syntax-comment: #6e6e6e;
+    --code-syntax-keyword: #af00db;
+    --code-syntax-string: #0070c1;
+    --code-syntax-number: #b04a00;
+    --code-syntax-function: #007880;
+    --code-syntax-type: #267f00;
+    --code-syntax-variable: #1a1a1a;
+    --code-syntax-property: #0070c1;
+    --code-syntax-operator: #d7002a;
+    --code-syntax-tag: #d7002a;
+    --code-syntax-attribute: #0070c1;
+    --code-syntax-meta: #1a1a1a;
+    --code-syntax-heading: #0b57d0;
+    --code-syntax-link: #0b57d0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   27. Light+（VS Code 经典默认亮色）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="light-plus"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f5f5;
+    --bg-tertiary: #e8e8e8;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #000000;
+    --text-secondary: #3b3b3b;
+    --text-muted: #6f6f6f;
+    --text-hint: #8f8f8f;
+    --border-color: #d9d9d9;
+    --accent-color: #0065bf;
+    --accent-hover: #00529c;
+    --brand-color: #0065bf;
+    --link-color: #0065bf;
+    --focus-ring: rgba(0,101,191,0.4);
+    --selection-bg: rgba(0,101,191,0.2);
+    --user-msg-color: #4a6ea8;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #f5f5f5;
+    --table-border: #d9d9d9;
+    --scrollbar-thumb: #c3c3c3;
+    --scrollbar-thumb-hover: #ababab;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(255, 255, 255, 0.9);
+    --text-color: #000000;
+    --color-green: #008000;
+    --color-yellow: #a06d00;
+    --color-red: #cd3131;
+    --color-purple: #a626a4;
+    --color-info: #0000ff;
+    --color-orange: #c94b00;
+    --color-success: #008000;
+    --text-bold: #0b0b0b;
+    --gradient-brand: linear-gradient(135deg, #0065bf, #3b8fd8);
+    --gradient-success: linear-gradient(135deg, #008000, #37a837);
+    --gradient-warning: linear-gradient(135deg, #a06d00, #c94b00);
+    --code-syntax-comment: #008000;
+    --code-syntax-keyword: #0000ff;
+    --code-syntax-string: #a31515;
+    --code-syntax-number: #b04a00;
+    --code-syntax-function: #795da3;
+    --code-syntax-type: #267f99;
+    --code-syntax-variable: #000000;
+    --code-syntax-property: #267f99;
+    --code-syntax-operator: #000000;
+    --code-syntax-tag: #cd3131;
+    --code-syntax-attribute: #a31515;
+    --code-syntax-meta: #000000;
+    --code-syntax-heading: #0000ff;
+    --code-syntax-link: #0065bf;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   28. Quiet Light（低饱和温和亮色）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="quiet-light"] {
+    --bg-primary: #f5f5f5;
+    --bg-secondary: #ececec;
+    --bg-tertiary: #e0e0e0;
+    --bg-elevated: #fbfbfb;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #333333;
+    --text-secondary: #4d4d4d;
+    --text-muted: #767676;
+    --text-hint: #959595;
+    --border-color: #c9c9c9;
+    --accent-color: #4a6f8b;
+    --accent-hover: #3d5e77;
+    --brand-color: #4a6f8b;
+    --link-color: #4a6f8b;
+    --focus-ring: rgba(74,111,139,0.4);
+    --selection-bg: rgba(74,111,139,0.2);
+    --user-msg-color: #52708c;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #ececec;
+    --table-border: #c9c9c9;
+    --scrollbar-thumb: #b3b3b3;
+    --scrollbar-thumb-hover: #9c9c9c;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(245, 245, 245, 0.9);
+    --text-color: #333333;
+    --color-green: #3a7454;
+    --color-yellow: #a36c00;
+    --color-red: #a03131;
+    --color-purple: #704214;
+    --color-info: #4a6f8b;
+    --color-orange: #a0631a;
+    --color-success: #3a7454;
+    --text-bold: #1f1f1f;
+    --gradient-brand: linear-gradient(135deg, #4a6f8b, #6b8fa9);
+    --gradient-success: linear-gradient(135deg, #3a7454, #5c9771);
+    --gradient-warning: linear-gradient(135deg, #a36c00, #a0631a);
+    --code-syntax-comment: #708090;
+    --code-syntax-keyword: #006699;
+    --code-syntax-string: #df5000;
+    --code-syntax-number: #a0631a;
+    --code-syntax-function: #704214;
+    --code-syntax-type: #006699;
+    --code-syntax-variable: #333333;
+    --code-syntax-property: #006699;
+    --code-syntax-operator: #006699;
+    --code-syntax-tag: #a03131;
+    --code-syntax-attribute: #df5000;
+    --code-syntax-meta: #333333;
+    --code-syntax-heading: #704214;
+    --code-syntax-link: #4a6f8b;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   29. Vitesse Light（antfu 清新翠绿亮色，与 vitesse-dark 配对）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="vitesse-light"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f6f6f4;
+    --bg-tertiary: #ebebe8;
+    --bg-elevated: #f9f9f9;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #393a34;
+    --text-secondary: #5b5a54;
+    --text-muted: #999999;
+    --text-hint: #adacaa;
+    --border-color: #d1d0cb;
+    --accent-color: #4d9375;
+    --accent-hover: #3f7a61;
+    --brand-color: #4d9375;
+    --link-color: #2f79c1;
+    --focus-ring: rgba(77,147,117,0.4);
+    --selection-bg: rgba(77,147,117,0.2);
+    --user-msg-color: #497f6a;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #f6f6f4;
+    --table-border: #d1d0cb;
+    --scrollbar-thumb: #b8b7b3;
+    --scrollbar-thumb-hover: #a09f9b;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(255, 255, 255, 0.9);
+    --text-color: #393a34;
+    --color-green: #4d9375;
+    --color-yellow: #b56129;
+    --color-red: #e53935;
+    --color-purple: #a36e9c;
+    --color-info: #2f79c1;
+    --color-orange: #c0631f;
+    --color-success: #4d9375;
+    --text-bold: #25262a;
+    --gradient-brand: linear-gradient(135deg, #4d9375, #6fb08f);
+    --gradient-success: linear-gradient(135deg, #4d9375, #6fb08f);
+    --gradient-warning: linear-gradient(135deg, #b56129, #c0631f);
+    --code-syntax-comment: #999999;
+    --code-syntax-keyword: #fa8d34;
+    --code-syntax-string: #86b300;
+    --code-syntax-number: #b56129;
+    --code-syntax-function: #2f79c1;
+    --code-syntax-type: #86b300;
+    --code-syntax-variable: #393a34;
+    --code-syntax-property: #2f79c1;
+    --code-syntax-operator: #ab5959;
+    --code-syntax-tag: #e53935;
+    --code-syntax-attribute: #86b300;
+    --code-syntax-meta: #393a34;
+    --code-syntax-heading: #2f79c1;
+    --code-syntax-link: #2f79c1;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   30. Bluloco Light（高饱和协调亮色）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="bluloco-light"] {
+    --bg-primary: #f7f9fc;
+    --bg-secondary: #edf1f7;
+    --bg-tertiary: #e0e6ee;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #292d3e;
+    --text-secondary: #434857;
+    --text-muted: #718096;
+    --text-hint: #8d98ab;
+    --border-color: #d4dae3;
+    --accent-color: #2b7bda;
+    --accent-hover: #2265b4;
+    --brand-color: #2b7bda;
+    --link-color: #2b7bda;
+    --focus-ring: rgba(43,123,218,0.4);
+    --selection-bg: rgba(43,123,218,0.2);
+    --user-msg-color: #4a6ea8;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #edf1f7;
+    --table-border: #d4dae3;
+    --scrollbar-thumb: #b8c0cc;
+    --scrollbar-thumb-hover: #9fa9b8;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(247, 249, 252, 0.9);
+    --text-color: #292d3e;
+    --color-green: #2ea651;
+    --color-yellow: #a36c00;
+    --color-red: #dd4a70;
+    --color-purple: #a626a4;
+    --color-info: #2b7bda;
+    --color-orange: #c94b00;
+    --color-success: #2ea651;
+    --text-bold: #1c1f2b;
+    --gradient-brand: linear-gradient(135deg, #2b7bda, #5c9fe3);
+    --gradient-success: linear-gradient(135deg, #2ea651, #54c476);
+    --gradient-warning: linear-gradient(135deg, #a36c00, #c94b00);
+    --code-syntax-comment: #718096;
+    --code-syntax-keyword: #dd4a70;
+    --code-syntax-string: #2ea651;
+    --code-syntax-number: #b56129;
+    --code-syntax-function: #2b7bda;
+    --code-syntax-type: #2ea651;
+    --code-syntax-variable: #292d3e;
+    --code-syntax-property: #2b7bda;
+    --code-syntax-operator: #dd4a70;
+    --code-syntax-tag: #dd4a70;
+    --code-syntax-attribute: #2ea651;
+    --code-syntax-meta: #292d3e;
+    --code-syntax-heading: #2b7bda;
+    --code-syntax-link: #2b7bda;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   31. Material Theme Lighter（Material 蓝绿点缀亮色）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="material-lighter"] {
+    --bg-primary: #fafafa;
+    --bg-secondary: #f0f0f0;
+    --bg-tertiary: #e4e4e4;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --text-primary: #212121;
+    --text-secondary: #494949;
+    --text-muted: #9e9e9e;
+    --text-hint: #b0b0b0;
+    --border-color: #e0e0e0;
+    --accent-color: #1976d2;
+    --accent-hover: #1565c0;
+    --brand-color: #1976d2;
+    --link-color: #1976d2;
+    --focus-ring: rgba(25,118,210,0.4);
+    --selection-bg: rgba(25,118,210,0.2);
+    --user-msg-color: #4a6ea8;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #f0f0f0;
+    --table-border: #e0e0e0;
+    --scrollbar-thumb: #c0c0c0;
+    --scrollbar-thumb-hover: #a8a8a8;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(250, 250, 250, 0.9);
+    --text-color: #212121;
+    --color-green: #0d9048;
+    --color-yellow: #b7950b;
+    --color-red: #c62828;
+    --color-purple: #7b1fa2;
+    --color-info: #1976d2;
+    --color-orange: #d9730d;
+    --color-success: #0d9048;
+    --text-bold: #111111;
+    --gradient-brand: linear-gradient(135deg, #1976d2, #42a5f5);
+    --gradient-success: linear-gradient(135deg, #0d9048, #3cb371);
+    --gradient-warning: linear-gradient(135deg, #b7950b, #d9730d);
+    --code-syntax-comment: #9e9e9e;
+    --code-syntax-keyword: #ad2222;
+    --code-syntax-string: #0d9048;
+    --code-syntax-number: #e65100;
+    --code-syntax-function: #1976d2;
+    --code-syntax-type: #0d9048;
+    --code-syntax-variable: #212121;
+    --code-syntax-property: #1976d2;
+    --code-syntax-operator: #ad2222;
+    --code-syntax-tag: #c62828;
+    --code-syntax-attribute: #0d9048;
+    --code-syntax-meta: #212121;
+    --code-syntax-heading: #1976d2;
+    --code-syntax-link: #1976d2;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   32. Alabaster（极简黑白亮色）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="alabaster"] {
+    --bg-primary: #f7f7f7;
+    --bg-secondary: #eeeeee;
+    --bg-tertiary: #e2e2e2;
+    --bg-elevated: #fbfbfb;
+    --bg-hover: rgba(0,0,0,0.05);
+    --bg-active: rgba(0,0,0,0.1);
+    --text-primary: #272727;
+    --text-secondary: #4a4a4a;
+    --text-muted: #777777;
+    --text-hint: #959595;
+    --border-color: #d9d9d9;
+    --accent-color: #0086b3;
+    --accent-hover: #006d91;
+    --brand-color: #0086b3;
+    --link-color: #0086b3;
+    --focus-ring: rgba(0,134,179,0.4);
+    --selection-bg: rgba(0,134,179,0.2);
+    --user-msg-color: #4a6ea8;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.1);
+    --code-bg: #eeeeee;
+    --table-border: #d9d9d9;
+    --scrollbar-thumb: #b8b8b8;
+    --scrollbar-thumb-hover: #a0a0a0;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(247, 247, 247, 0.9);
+    --text-color: #272727;
+    --color-green: #448c27;
+    --color-yellow: #a36c00;
+    --color-red: #aa3731;
+    --color-purple: #704214;
+    --color-info: #0086b3;
+    --color-orange: #c05e2c;
+    --color-success: #448c27;
+    --text-bold: #111111;
+    --gradient-brand: linear-gradient(135deg, #0086b3, #2ea8cf);
+    --gradient-success: linear-gradient(135deg, #448c27, #63b23f);
+    --gradient-warning: linear-gradient(135deg, #a36c00, #c05e2c);
+    --code-syntax-comment: #777777;
+    --code-syntax-keyword: #0086b3;
+    --code-syntax-string: #448c27;
+    --code-syntax-number: #aa3731;
+    --code-syntax-function: #aa3731;
+    --code-syntax-type: #0086b3;
+    --code-syntax-variable: #272727;
+    --code-syntax-property: #0086b3;
+    --code-syntax-operator: #272727;
+    --code-syntax-tag: #aa3731;
+    --code-syntax-attribute: #448c27;
+    --code-syntax-meta: #272727;
+    --code-syntax-heading: #aa3731;
+    --code-syntax-link: #0086b3;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   34. Dark+（VS Code 经典默认深色，与 light-plus 配对）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="dark-plus"] {
+    --bg-primary: #1e1e1e;
+    --bg-secondary: #252526;
+    --bg-tertiary: #2d2d2d;
+    --bg-elevated: #2d2d30;
+    --bg-hover: rgba(255,255,255,0.06);
+    --bg-active: rgba(255,255,255,0.12);
+    --text-primary: #d4d4d4;
+    --text-secondary: #b0b0b0;
+    --text-muted: #8c8c8c;
+    --text-hint: #757575;
+    --border-color: #3c3c3c;
+    --accent-color: #0e639c;
+    --accent-hover: #1177bb;
+    --brand-color: #3794ff;
+    --link-color: #3794ff;
+    --focus-ring: rgba(55,148,255,0.4);
+    --selection-bg: rgba(55,148,255,0.3);
+    --user-msg-color: #3a6288;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #252526;
+    --table-border: #3c3c3c;
+    --scrollbar-thumb: #4d4d4d;
+    --scrollbar-thumb-hover: #5f5f5f;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(30, 30, 30, 0.95);
+    --text-color: #d4d4d4;
+    --color-green: #4ec9b0;
+    --color-yellow: #dcdcaa;
+    --color-red: #f14c4c;
+    --color-purple: #c586c0;
+    --color-info: #3794ff;
+    --color-orange: #ce9178;
+    --color-success: #4ec9b0;
+    --text-bold: #f0f0f0;
+    --gradient-brand: linear-gradient(135deg, #0e639c, #3794ff);
+    --gradient-success: linear-gradient(135deg, #4ec9b0, #73d4c0);
+    --gradient-warning: linear-gradient(135deg, #dcdcaa, #ce9178);
+    --code-syntax-comment: #6a9955;
+    --code-syntax-keyword: #569cd6;
+    --code-syntax-string: #ce9178;
+    --code-syntax-number: #b5cea8;
+    --code-syntax-function: #dcdcaa;
+    --code-syntax-type: #4ec9b0;
+    --code-syntax-variable: #9cdcfe;
+    --code-syntax-property: #9cdcfe;
+    --code-syntax-operator: #d4d4d4;
+    --code-syntax-tag: #569cd6;
+    --code-syntax-attribute: #ce9178;
+    --code-syntax-meta: #d4d4d4;
+    --code-syntax-heading: #3794ff;
+    --code-syntax-link: #3794ff;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   35. Monokai（经典高饱和深色）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="monokai"] {
+    --bg-primary: #272822;
+    --bg-secondary: #2e2f29;
+    --bg-tertiary: #373832;
+    --bg-elevated: #33342d;
+    --bg-hover: rgba(255,255,255,0.06);
+    --bg-active: rgba(255,255,255,0.12);
+    --text-primary: #f8f8f2;
+    --text-secondary: #c8c8b4;
+    --text-muted: #a6a68e;
+    --text-hint: #8f8f78;
+    --border-color: #49483e;
+    --accent-color: #ae81ff;
+    --accent-hover: #c29aff;
+    --brand-color: #66d9ef;
+    --link-color: #66d9ef;
+    --focus-ring: rgba(102,217,239,0.4);
+    --selection-bg: rgba(102,217,239,0.25);
+    --user-msg-color: #3a6288;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #2e2f29;
+    --table-border: #49483e;
+    --scrollbar-thumb: #57564a;
+    --scrollbar-thumb-hover: #66655a;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(39, 40, 34, 0.95);
+    --text-color: #f8f8f2;
+    --color-green: #a6e22e;
+    --color-yellow: #e6db74;
+    --color-red: #f92672;
+    --color-purple: #ae81ff;
+    --color-info: #66d9ef;
+    --color-orange: #fd971f;
+    --color-success: #a6e22e;
+    --text-bold: #ffffff;
+    --gradient-brand: linear-gradient(135deg, #ae81ff, #66d9ef);
+    --gradient-success: linear-gradient(135deg, #a6e22e, #c2e766);
+    --gradient-warning: linear-gradient(135deg, #e6db74, #fd971f);
+    --code-syntax-comment: #75715e;
+    --code-syntax-keyword: #f92672;
+    --code-syntax-string: #e6db74;
+    --code-syntax-number: #ae81ff;
+    --code-syntax-function: #a6e22e;
+    --code-syntax-type: #66d9ef;
+    --code-syntax-variable: #f8f8f2;
+    --code-syntax-property: #a6e22e;
+    --code-syntax-operator: #f92672;
+    --code-syntax-tag: #f92672;
+    --code-syntax-attribute: #a6e22e;
+    --code-syntax-meta: #f8f8f2;
+    --code-syntax-heading: #66d9ef;
+    --code-syntax-link: #66d9ef;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   36. Bluloco Dark（高饱和协调深色，与 bluloco-light 配对）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="bluloco-dark"] {
+    --bg-primary: #1d212c;
+    --bg-secondary: #242936;
+    --bg-tertiary: #2e3440;
+    --bg-elevated: #282e3b;
+    --bg-hover: rgba(255,255,255,0.06);
+    --bg-active: rgba(255,255,255,0.12);
+    --text-primary: #e2e8f0;
+    --text-secondary: #c0c9d6;
+    --text-muted: #94a3b8;
+    --text-hint: #7c8aa0;
+    --border-color: #3a4151;
+    --accent-color: #52a5ff;
+    --accent-hover: #6db4ff;
+    --brand-color: #52a5ff;
+    --link-color: #52a5ff;
+    --focus-ring: rgba(82,165,255,0.4);
+    --selection-bg: rgba(82,165,255,0.25);
+    --user-msg-color: #3a6288;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #242936;
+    --table-border: #3a4151;
+    --scrollbar-thumb: #4a5264;
+    --scrollbar-thumb-hover: #5a6376;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(29, 33, 44, 0.95);
+    --text-color: #e2e8f0;
+    --color-green: #84cc79;
+    --color-yellow: #e0c475;
+    --color-red: #f075a0;
+    --color-purple: #a88cf4;
+    --color-info: #52a5ff;
+    --color-orange: #e79a5a;
+    --color-success: #84cc79;
+    --text-bold: #ffffff;
+    --gradient-brand: linear-gradient(135deg, #52a5ff, #85c0ff);
+    --gradient-success: linear-gradient(135deg, #84cc79, #a5dc9d);
+    --gradient-warning: linear-gradient(135deg, #e0c475, #e79a5a);
+    --code-syntax-comment: #718096;
+    --code-syntax-keyword: #f075a0;
+    --code-syntax-string: #84cc79;
+    --code-syntax-number: #e79a5a;
+    --code-syntax-function: #52a5ff;
+    --code-syntax-type: #84cc79;
+    --code-syntax-variable: #e2e8f0;
+    --code-syntax-property: #52a5ff;
+    --code-syntax-operator: #f075a0;
+    --code-syntax-tag: #f075a0;
+    --code-syntax-attribute: #84cc79;
+    --code-syntax-meta: #e2e8f0;
+    --code-syntax-heading: #52a5ff;
+    --code-syntax-link: #52a5ff;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   37. Material Theme Darker（Material 深蓝高亮深色，与 material-lighter 配对）
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme="material-darker"] {
+    --bg-primary: #212121;
+    --bg-secondary: #282828;
+    --bg-tertiary: #303030;
+    --bg-elevated: #2b2b2b;
+    --bg-hover: rgba(255,255,255,0.06);
+    --bg-active: rgba(255,255,255,0.12);
+    --text-primary: #eeffff;
+    --text-secondary: #c4d7d8;
+    --text-muted: #92a6a7;
+    --text-hint: #7a8b8c;
+    --border-color: #424242;
+    --accent-color: #80cbc4;
+    --accent-hover: #97d6d0;
+    --brand-color: #80cbc4;
+    --link-color: #82aaff;
+    --focus-ring: rgba(128,203,196,0.4);
+    --selection-bg: rgba(128,203,196,0.25);
+    --user-msg-color: #3a6288;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --code-bg: #282828;
+    --table-border: #424242;
+    --scrollbar-thumb: #555555;
+    --scrollbar-thumb-hover: #666666;
+    --lb-bg: rgba(0,0,0,0.92);
+    --lb-toolbar-bg: rgba(33, 33, 33, 0.95);
+    --text-color: #eeffff;
+    --color-green: #c3e88d;
+    --color-yellow: #ffe082;
+    --color-red: #f07178;
+    --color-purple: #c792ea;
+    --color-info: #82aaff;
+    --color-orange: #f78c6c;
+    --color-success: #c3e88d;
+    --text-bold: #ffffff;
+    --gradient-brand: linear-gradient(135deg, #80cbc4, #82aaff);
+    --gradient-success: linear-gradient(135deg, #c3e88d, #d5efb2);
+    --gradient-warning: linear-gradient(135deg, #ffe082, #f78c6c);
+    --code-syntax-comment: #546e7a;
+    --code-syntax-keyword: #89ddff;
+    --code-syntax-string: #c792ea;
+    --code-syntax-number: #f78c6c;
+    --code-syntax-function: #82aaff;
+    --code-syntax-type: #c3e88d;
+    --code-syntax-variable: #eeffff;
+    --code-syntax-property: #89ddff;
+    --code-syntax-operator: #89ddff;
+    --code-syntax-tag: #f07178;
+    --code-syntax-attribute: #c792ea;
+    --code-syntax-meta: #eeffff;
+    --code-syntax-heading: #82aaff;
+    --code-syntax-link: #82aaff;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   Diff row tints — dark-surface override
+
+   The six `--diff-*` tokens live in `:root` (top of this file). A translucent
+   tint reads as a much smaller lightness step on a dark surface than on a
+   light one, so at the shared 20% the added/deleted rows of every dark theme
+   drifted back toward each other. Raising the mix here restores the same
+   separation the light themes get from the base value.
+
+   Declared once against `data-theme-base="dark"` (set on <html> alongside
+   `data-theme`) rather than per dark theme: the tints are already derived from
+   each theme's own status colours, so only the depth needs to change.
+   ══════════════════════════════════════════════════════════════════════════════ */
+[data-theme-base="dark"] {
+    --diff-add-bg: color-mix(in srgb, var(--color-green) 26%, transparent);
+    --diff-del-bg: color-mix(in srgb, var(--color-red) 26%, transparent);
+    --diff-mod-bg: color-mix(in srgb, var(--color-yellow) 26%, transparent);
+}

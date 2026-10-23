@@ -1,0 +1,19 @@
+# Build output
+/clawterm
+.clawterm-web/
+/internal/frontend/dist/
+/android/app/build/
+/android/build/
+/android/.gradle/
+/android/local.properties
+
+# Android server binary (rebuilt by build.sh --android)
+/android/app/src/main/jniLibs/
+
+# Node
+node_modules/
+
+# Local data
+*.db
+*.db-wal
+*.db-shm

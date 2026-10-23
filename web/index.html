@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <!-- interactive-widget=resizes-content makes the LAYOUT viewport shrink with
+         the on-screen keyboard (Chrome 108+ defaults to resizes-visual, which
+         shrinks only the visual viewport and leaves a fixed full-height shell
+         with a blank band where the keyboard is). Android WebView's adjustResize
+         already behaves this way; iOS ignores the keyword. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+    <meta name="theme-color" content="#1d2021">
+    <meta name="description" content="SSH / SFTP terminal manager">
+
+    <!-- Resolve the theme BEFORE any CSS loads: setting data-theme after paint
+         shows one frame of the default palette, which on a dark phone is a
+         white flash. This is the sole authority for the factory theme (a fresh
+         install persists it right here, so it survives restarts). -->
+    <script>
+      (function () {
+        var DARK_IDS = ['solarized-dark','monokai','material-darker','dark-plus','bluloco-dark','nord','everforest-dark','one-dark-pro','dracula','rose-pine','gruvbox-dark','solarized-deep','github-dark','catppuccin-mocha','vitesse-dark','tokyo-night','kanagawa','ayu-dark','night-owl','high-contrast-dark'];
+        var STORE_KEY = 'clawterm-settings-theme';
+        var DARK_DEFAULT = 'gruvbox-dark';
+        var LIGHT_DEFAULT = 'github-light';
+        function persist(id) { try { localStorage.setItem(STORE_KEY, JSON.stringify(id)); } catch (e) {} }
+        var chosen = null;
+        try { var s = localStorage.getItem(STORE_KEY); if (s !== null) chosen = JSON.parse(s); } catch (e) {}
+        if (chosen === 'light') { chosen = LIGHT_DEFAULT; persist(chosen); }
+        else if (chosen === 'dark') { chosen = DARK_DEFAULT; persist(chosen); }
+        if (chosen === null || chosen === '') { chosen = DARK_DEFAULT; persist(chosen); }
+        // 'auto' follows the system but is never persisted as a concrete id,
+        // otherwise the app would stop following the system after one launch.
+        var t = (chosen === 'auto')
+          ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? DARK_DEFAULT : LIGHT_DEFAULT)
+          : chosen;
+        var base = DARK_IDS.indexOf(t) >= 0 ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', t);
+        document.documentElement.setAttribute('data-theme-base', base);
+        var SB = {'one-light':'#f0f0f0','ayu-light':'#f3f3f3','github-light':'#f8f9fa','light-modern':'#f3f3f3','light-plus':'#f5f5f5','quiet-light':'#ececec','vitesse-light':'#f6f6f4','bluloco-light':'#edf1f7','material-lighter':'#f0f0f0','alabaster':'#eeeeee','everforest-light':'#f2e9d0','high-contrast-light':'#f5f5f5','nord-light':'#e5e9f0','catppuccin-latte':'#e6e9ef','solarized-light':'#eee8d5','gruvbox-light':'#f2e5bc','solarized-dark':'#0a3541','monokai':'#272822','material-darker':'#212121','dark-plus':'#1e1e1e','bluloco-dark':'#1d212c','nord':'#202833','everforest-dark':'#22282b','one-dark-pro':'#21252b','dracula':'#21222c','rose-pine':'#1f1d2e','gruvbox-dark':'#1d2021','solarized-deep':'#15212b','github-dark':'#161b22','catppuccin-mocha':'#181825','vitesse-dark':'#181818','tokyo-night':'#16161e','kanagawa':'#16161d','ayu-dark':'#0d1017','night-owl':'#001122','high-contrast-dark':'#0a0a0a'};
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', SB[t] || '#1d2021');
+      })();
+    </script>
+
+    <link rel="icon" type="image/png" href="/assets/favicon.png">
+    <link rel="apple-touch-icon" href="/assets/logo-180.png">
+    <link rel="manifest" href="/assets/manifest.json">
+
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <title>ClawTerm</title>
+
+    <link rel="stylesheet" href="/css/variables.css">
+    <link rel="stylesheet" href="/css/base.css">
+    <link rel="stylesheet" href="/css/layout.css">
+    <link rel="stylesheet" href="/css/wide-screen.css">
+    <link rel="stylesheet" href="/css/components.css">
+    <link rel="stylesheet" href="/css/panels.css">
+    <link rel="stylesheet" href="/src/assets/theme-picker.css">
+</head>
+<body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

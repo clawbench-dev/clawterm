@@ -1,0 +1,1215 @@
+/* ==========================================================================
+   Component Styles
+   ========================================================================== */
+
+/* ==========================================================================
+   Shared count badge
+   Used by: the dock tabs, session tabs/group headers, git lists, stats tables,
+   task list, chat drawers — anywhere a small numeric count sits next to a label.
+
+   Declared GLOBALLY, not in a component's <style scoped> block, for the same
+   reason as the forge list chrome below: the shape is shared by ~17 call sites
+   across as many components, and a scoped rule only applies to the component
+   that declares it.
+
+   What lives here is shape + geometry + font size — the parts that must look
+   identical everywhere. What stays at the call site is the part that is
+   genuinely per-badge: colour (solid accent vs. muted grey) and font weight.
+
+   Two size tiers, because the call sites already used two:
+     .count-badge      16px tall / --font-size-2xs  (the common case)
+     .count-badge--md  18px tall / --font-size-xs   (dock overflow, file changes)
+
+   Height comes from `line-height` rather than a fixed `height`, so a single
+   line of text is exactly the tier height (same as the dock badge) while a
+   badge that wraps richer content — `.drilldown-count` can hold a spinner plus
+   a label — grows instead of clipping.
+
+   The pill radius is deliberate: a count badge is a single short number, and
+   --radius-full turns the two vertical edges into full semicircles. A corner
+   radius (--radius-sm and friends) read as a blocky chip at these sizes.
+
+   IMPORTANT for call sites: `border-radius` and the geometry below must NOT be
+   re-declared in a component's scoped rule. A scoped rule compiles to
+   `.foo[data-v-xxx]`, which outranks this single global class — re-adding a
+   radius there silently wins and the badge goes square again. Keep only colour
+   and font-weight in the scoped rule.
+   ========================================================================== */
+
+.count-badge {
+    display: inline-block;
+    min-width: 16px;
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-2xs);
+    line-height: 16px;
+    text-align: center;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+.count-badge--md {
+    min-width: 18px;
+    padding: 0 var(--space-3);
+    font-size: var(--font-size-xs);
+    line-height: 18px;
+}
+
+/* ==========================================================================
+   Git history panel chrome — drill-down shell + header bar + its buttons
+   Used by: GitCommitList.vue (commit list), GitHistoryContent.vue (history
+            dock tab), GitHistoryDrawer.vue (mobile file-history sheet)
+
+   Declared GLOBALLY, not in a component's `<style scoped>` block, for the same
+   reason as the forge chrome below: the commit-list header and its icon buttons
+   are rendered by three components, and these rules had been copy-pasted into
+   each one's scoped block — three places to drift apart. A scoped rule also only
+   applies to the component that declares it, which is what left
+   ForgePipelineDetail unstyled.
+
+   Geometry and button treatment deliberately mirror the forge panel header
+   (.forge-header / .forge-header-btn) so a panel header reads the same whichever
+   tab it belongs to: same bar height and padding, same square-round 28px icon
+   button on --bg-secondary that turns --bg-tertiary + accent on hover.
+   ========================================================================== */
+
+/* Drill-down shell. No fill of its own: the surface is owned by the page root
+   that hosts it (.git-history-content in the dock tab, the BottomSheet panel in
+   the mobile file-history drawer), so the same chrome adapts to both. */
+.drilldown-page {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* The bar inherits its fill from that host surface — in the history tab that is
+   --bg-primary, exactly the relationship .forge-header has with .forge-panel
+   (a bg-primary bar on a bg-primary page, separated only by the border). Only
+   the border is declared here, so a drawer keeps its own sheet material instead
+   of getting a second, contrasting bar stacked under the sheet header. */
+.drilldown-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--header-height);
+    padding: 0 var(--space-2) 0 var(--space-6);
+    border-bottom: 1px solid var(--border-color);
+    background: transparent;
+    flex-shrink: 0;
+    gap: var(--space-3);
+}
+
+.drilldown-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-primary);
+    overflow: hidden;
+    flex: 1;
+    min-width: 0;
+}
+
+/* The leading glyph. `flex-shrink: 0` keeps it at 14px when the count badge
+   beside it is long, and it inherits the title's colour (as forge's does). */
+.drilldown-title-icon {
+    flex-shrink: 0;
+}
+
+/* Colour only — shape and geometry belong to the shared .count-badge. */
+.drilldown-count {
+    font-weight: var(--font-weight-bold);
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+
+/* Icon button in the header toolbar. `border: none` is required: the class is
+   used by both <button> and RefreshButton (which renders a <button>), and a
+   bare button keeps the UA's default border. */
+.drilldown-refresh-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: var(--radius-lg);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 0;
+    transition: background var(--duration-slow) ease, color var(--duration-slow) ease,
+        transform var(--duration-slow) ease;
+}
+
+@media (hover: hover) {
+    .drilldown-refresh-btn:hover:not(:disabled) {
+        background: var(--bg-tertiary);
+        color: var(--accent-color);
+    }
+}
+
+.drilldown-refresh-btn:active:not(:disabled) {
+    transform: scale(0.9);
+}
+
+.drilldown-refresh-btn:disabled {
+    opacity: var(--opacity-muted);
+    cursor: not-allowed;
+}
+
+/* Stale-data hint: the refresh button pulses in the THEME accent. The glow was
+   a hard-coded rgba(74,144,217,…), so it stayed the same blue under every
+   theme instead of picking up the accent the rest of the UI uses. */
+.drilldown-refresh-btn.refresh-pulse {
+    animation: refresh-pulse-glow 1.5s ease-in-out infinite;
+    color: var(--accent-color);
+}
+
+@keyframes refresh-pulse-glow {
+    0%, 100% { box-shadow: 0 0 0 0 transparent; }
+    50% { box-shadow: 0 0 6px 2px color-mix(in srgb, var(--accent-color) 40%, transparent); }
+}
+
+.drilldown-body {
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* ==========================================================================
+   Shared Context Menu
+   Used by: FileManager.vue, ProjectDialog.vue
+   ========================================================================== */
+
+.context-menu {
+    position: fixed;
+    z-index: var(--z-context-menu);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    min-width: 140px;
+    padding: var(--space-2) 0;
+    display: none;
+}
+
+.context-menu.visible {
+    display: block;
+}
+
+.context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4) 14px;
+    font-size: var(--font-size-md);
+    cursor: pointer;
+    color: var(--text-primary);
+    transition: background var(--duration-fast);
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.context-menu-item:hover {
+    background: var(--bg-tertiary);
+}
+
+/* A menu item reflecting a condition that is currently ON (e.g. the file or
+   conversation already has a public share link). Mirrors
+   .file-header-dropdown-menu .dropdown-item.active so both menus read the same. */
+.context-menu-item.active {
+    background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+    color: var(--accent-color);
+}
+
+.context-menu-item.active:hover {
+    background: color-mix(in srgb, var(--accent-color) 18%, transparent);
+}
+
+/* Trailing "this option is currently on" check, pushed to the right edge of a
+   menu row. Declared globally because BOTH menus use it — the file header's
+   dropdown (word wrap / line numbers / sticky scroll / share link) and the
+   session list's context menu (share conversation). Keeping the base rule in
+   one place is what makes the two menus read identically; a scoped copy would
+   only style the menu of the component that declared it. */
+.wrap-check {
+    margin-left: auto;
+    color: var(--accent-color);
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+}
+
+.context-menu-item.danger {
+    color: #ef4444;
+}
+
+.context-menu-item.danger:hover {
+    background: #fef2f2;
+}
+
+[data-theme-base="dark"] .context-menu-item.danger:hover {
+    background: #2d1b1b;
+}
+
+.context-menu-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: var(--space-2) 0;
+}
+
+.context-menu-item.disabled {
+    opacity: var(--opacity-disabled);
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.ctx-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-context-menu-backdrop);
+}
+
+/* ==========================================================================
+   Forge panel — shared chrome
+   Used by: ForgePanelContent.vue (list), ForgeDetail.vue (issue/PR detail),
+            ForgePipelineDetail.vue (CI run detail)
+
+   These live here rather than in a component's `<style scoped>` because more
+   than one component renders them: a scoped rule only applies to the component
+   that declares it, so ForgePipelineDetail rendered its header, back button,
+   icon buttons, status dots and error card completely unstyled when these were
+   declared only inside ForgeDetail. Declaring them once here is what makes the
+   three forge views visually consistent.
+   ========================================================================== */
+
+/* ── Drill-down page shell ── */
+.forge-detail {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg-primary);
+}
+
+/* ── Drill-down header: the same bar height as every other detail page ── */
+.forge-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--header-height);
+    padding: 0 var(--space-2) 0 var(--space-3);
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    flex-shrink: 0;
+    gap: var(--space-4);
+}
+
+.forge-back {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    background: transparent;
+    border: none;
+    color: var(--accent-color);
+    cursor: pointer;
+    font-size: var(--font-size-md);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    transition: background var(--duration-base) ease;
+}
+
+@media (hover: hover) {
+    .forge-back:hover { background: var(--bg-secondary); }
+}
+
+.forge-back:active { background: var(--bg-tertiary); }
+
+.forge-detail-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+/* Round icon button. `border: none` is required: this class is used by BOTH <a>
+   and <button>, and a bare <button> keeps the UA's default border, which shows
+   up as a stray ring around the round icon. (<a> has no default border, which is
+   why the gap only appeared once a <button> used this class.) */
+.forge-icon-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-lg);
+    border: none;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background var(--duration-slow) ease, color var(--duration-slow) ease;
+}
+
+@media (hover: hover) {
+    .forge-icon-btn:hover {
+        background: var(--bg-tertiary);
+        color: var(--accent-color);
+    }
+}
+
+.forge-loading {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* First-load placeholder fills the list area and aligns with the real rows;
+   centring a skeleton shrinks it to its content and floats a narrow column.
+   Global for the same reason as .forge-loading: four forge views share it. */
+.forge-loading--skeleton {
+    align-items: stretch;
+    justify-content: flex-start;
+    min-width: 0;
+    padding: var(--space-4) 0;
+}
+
+/* ── Error card ── */
+.forge-error-card {
+    margin: var(--space-6);
+    padding: var(--space-6);
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    border: 1px solid color-mix(in srgb, var(--color-red) 35%, var(--border-color));
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-red) 6%, var(--bg-secondary));
+}
+
+.forge-error-icon { color: var(--color-red); flex-shrink: 0; }
+.forge-error-text { flex: 1; min-width: 0; }
+.forge-error-title {
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-semibold);
+    margin-bottom: var(--space-1);
+}
+.forge-error-body { color: var(--text-secondary); font-size: var(--font-size-sm); }
+
+/* ── Shared list chrome (rows, empty states, list scroller) ──
+   Declared GLOBALLY, not in a component's <style scoped> block.
+
+   Why: these class names are used by more than one component. A scoped rule only
+   applies to the component that declares it, so the moment the forge list was
+   split into its own component (ForgeOverviewList) every rule it shared with
+   ForgePanelContent silently stopped applying — the rows rendered unstyled.
+   Unit tests did not catch it because they assert text, not layout.
+
+   Keep any class used by two or more forge views here. */
+
+/* The scroller. flex:1 so it fills the panel between header and footer. */
+.forge-list {
+    flex: 1;
+    overflow-y: auto;
+    border-top: 1px solid var(--border-color);
+}
+
+/* The row itself. This is the geometry every forge list shares — without it a
+   row is not a flex line at all (no padding, no separator, no hover), which is
+   exactly how the activity tab rendered before it was moved here. */
+.forge-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-5);
+    padding: 11px var(--space-6);
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background var(--duration-base) ease;
+}
+@media (hover: hover) {
+    .forge-row:hover {
+        background: var(--bg-secondary);
+    }
+}
+.forge-row:active {
+    background: var(--bg-tertiary);
+}
+
+.forge-row-main { flex: 1; min-width: 0; }
+
+.forge-row-title {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+/* The primary text of a row. Shared for the same reason as .forge-row: it is
+   the row's typography, not one view's. */
+.forge-row-text {
+    color: var(--text-primary);
+    font-size: var(--font-size-lg);
+    line-height: var(--line-height-snug);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.forge-row-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    margin-top: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+}
+
+/* The timestamp is the last thing to give up space, so it never wraps. */
+.forge-row-time { white-space: nowrap; flex-shrink: 0; }
+
+.forge-row-chevron {
+    color: var(--text-hint);
+    flex-shrink: 0;
+    align-self: center;
+}
+
+/* Centred empty-state block: icon over a title, optionally a hint line. */
+.forge-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px var(--space-8);
+    flex: 1;
+}
+
+.forge-empty-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-5);
+    padding: 32px 24px;
+}
+
+.forge-empty-icon { color: var(--text-muted); opacity: var(--opacity-muted); }
+.forge-empty-title { font-size: var(--font-size-lg); color: var(--text-muted); }
+.forge-empty-hint { font-size: var(--font-size-sm); color: var(--text-hint); text-align: center; }
+
+/* Event-count badge on an unread row (e.g. "3 events"). */
+.forge-overview-count-badge {
+    font-size: 11px;
+    color: var(--text-secondary, #6b7280);
+}
+
+/* ── Filter toolbar and chips ──
+   Global for the same reason as the list chrome above: the activity tab renders
+   its own toolbar (read/unread/all) from ForgeOverviewList, while the issue/PR
+   and pipeline tabs render theirs from ForgePanelContent. Declaring these in
+   either component's <style scoped> leaves the OTHER one unstyled — scoped rules
+   only apply to the component that declares them.
+
+   Kept identical across all four views on purpose: the filter affordance is the
+   same control, so a per-view variant would be a gratuitous inconsistency. */
+
+/* Filter rows sit under the tab bar. */
+.forge-toolbar {
+    padding: var(--space-4) var(--space-6) 0;
+    flex-shrink: 0;
+}
+
+.forge-chips {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+}
+
+.forge-chips-scroll {
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: var(--space-1);
+}
+.forge-chips-scroll::-webkit-scrollbar { display: none; }
+
+/* Separates the state group from the mine group without a second row. */
+.forge-chips-divider {
+    width: 1px;
+    height: 14px;
+    background: var(--border-color);
+    flex-shrink: 0;
+    margin: 0 var(--space-1);
+}
+
+.forge-chip {
+    padding: var(--space-2) var(--space-6);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: var(--font-size-md);
+    line-height: 18px;
+    white-space: nowrap;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background var(--duration-base) ease, border-color var(--duration-base) ease, color var(--duration-base) ease;
+}
+@media (hover: hover) {
+    .forge-chip:not(.active):hover {
+        border-color: var(--accent-color);
+        color: var(--accent-color);
+    }
+}
+.forge-chip.active {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #fff;
+}
+
+/* ── Status dot: baseline-aligned with the title's first line ── */
+.forge-state-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: inline-block;
+    margin-top: var(--space-3);
+}
+
+/* Issue / PR lifecycle states. */
+.forge-state-dot.state-open { background: var(--color-success); }
+.forge-state-dot.state-closed { background: var(--color-red); }
+.forge-state-dot.state-merged { background: var(--color-purple); }
+
+/* CI run and job outcomes. Deliberately separate from the lifecycle states
+   above: a run's status is an outcome, not a lifecycle position. */
+.forge-state-dot.pipeline-success { background: var(--color-success); }
+.forge-state-dot.pipeline-failure { background: var(--color-red); }
+.forge-state-dot.pipeline-running { background: var(--color-yellow); }
+.forge-state-dot.pipeline-cancelled,
+.forge-state-dot.pipeline-skipped { background: var(--text-secondary); }
+.forge-state-dot.pipeline-unknown { background: var(--border-color); }
+
+/* ── Unread marker ──
+   A row with unseen activity. The dot sits at the end of the title line rather
+   than beside the state dot, so it reads as "new" without being mistaken for a
+   status. The row also takes a faint tint, so the unread set is scannable
+   without relying on spotting a small dot. */
+.forge-unread-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    flex-shrink: 0;
+    align-self: center;
+}
+
+.forge-row.unread {
+    background: color-mix(in srgb, var(--accent-color) 6%, transparent);
+}
+
+.forge-row.unread .forge-row-text {
+    font-weight: var(--font-weight-medium);
+}
+
+/* The "mark all read" button mirrors the task list's clear-unread affordance:
+   accent-tinted while there is something to clear, and inert when there is not. */
+.clear-unread-btn.active {
+    color: var(--accent-color);
+}
+
+/* ── CI run row metadata (list rows and the detail header) ──
+   The ref is the most useful field, so it is emphasised over the run details. */
+.forge-pipeline-ref {
+    font-weight: var(--font-weight-medium);
+}
+
+.forge-pipeline-sha,
+.forge-pipeline-event {
+    font-family: var(--font-mono);
+    opacity: 0.85;
+}
+
+/* ── Detail page body: title block + meta line ── */
+.forge-detail-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+}
+
+.forge-detail-title-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-4);
+}
+
+.forge-detail-title-main { flex: 1; min-width: 0; }
+
+.forge-detail-title {
+    font-size: var(--font-size-2xl);
+    font-weight: var(--font-weight-semibold);
+    margin: 0;
+    line-height: 1.35;
+    color: var(--text-primary);
+}
+
+.forge-detail-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+}
+
+.forge-detail-number {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+.forge-meta-sep { opacity: var(--opacity-muted); }
+
+/* State badge — tinted pill instead of bare coloured text. */
+.forge-state-badge {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    padding: 1px var(--space-4);
+    border-radius: var(--radius-full);
+    border: 1px solid transparent;
+}
+
+.forge-state-badge.state-open {
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+}
+.forge-state-badge.state-closed {
+    color: var(--color-red);
+    background: color-mix(in srgb, var(--color-red) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-red) 35%, transparent);
+}
+.forge-state-badge.state-merged {
+    color: var(--color-purple);
+    background: color-mix(in srgb, var(--color-purple) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-purple) 35%, transparent);
+}
+
+/* CI outcomes reuse the badge shape with their own tints. */
+.forge-state-badge.pipeline-success {
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+}
+.forge-state-badge.pipeline-failure {
+    color: var(--color-red);
+    background: color-mix(in srgb, var(--color-red) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-red) 35%, transparent);
+}
+.forge-state-badge.pipeline-running {
+    color: var(--color-yellow);
+    background: color-mix(in srgb, var(--color-yellow) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-yellow) 35%, transparent);
+}
+.forge-state-badge.pipeline-cancelled,
+.forge-state-badge.pipeline-skipped,
+.forge-state-badge.pipeline-unknown {
+    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
+    border-color: color-mix(in srgb, var(--text-secondary) 35%, transparent);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Quote attachment card (QuoteCard.vue)
+
+   Global on purpose: this card renders on TWO surfaces — the chat input
+   (ChatInputBar, scoped) and a sent bubble (ChatMessageItem, scoped). A rule
+   inside either component's <style scoped> reaches only its own surface, so a
+   per-component rule is how the two drift apart. It already had: the sent
+   bubble had NO rule at all, so a sent quote card rendered as a bare chip with
+   no background or border, indistinguishable from plain text.
+
+   The card must stay VISUALLY distinct from a normal file attachment (which is
+   a plain neutral chip), while keeping EXACTLY the same geometry — height,
+   radius, padding and max-width all come from `.chat-file-attachment` and are
+   deliberately not restated here.
+
+   Distinctiveness is therefore carried by PAINT ONLY, never by box metrics:
+     - a solid accent border instead of the old dashed one (same 1px width, so
+       no reflow);
+     - an accent spine on the left edge, drawn with an INSET box-shadow rather
+       than a border-left, because a border would add to the box and change the
+       width of every card;
+     - a subtle vertical gradient wash, so the chip reads as a "card" rather
+       than a flat tag.
+
+   Scoped to `.attachment-quote`, which only QuoteCard sets, so no normal
+   attachment is affected.
+   ══════════════════════════════════════════════════════════════════════════ */
+.chat-file-attachment.attachment-quote {
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--accent-color, #4f9cf7) 13%, transparent),
+        color-mix(in srgb, var(--accent-color, #4f9cf7) 7%, transparent)
+    );
+    border: 1px solid color-mix(in srgb, var(--accent-color, #4f9cf7) 42%, transparent);
+    color: var(--accent-color, #4f9cf7);
+    cursor: pointer;
+    /* Left accent spine + a hairline inner highlight. Inset shadows paint
+       inside the border box, so the card's outer size is untouched. */
+    box-shadow:
+        inset 3px 0 0 0 var(--accent-color, #4f9cf7),
+        inset 0 1px 0 0 color-mix(in srgb, #fff 10%, transparent);
+}
+
+/* The label inherits the accent colour set above; stated explicitly so a
+   theme's generic `.attachment-filename` colour cannot win by specificity.
+
+   Deliberately NO font-weight change: a bolder label is marginally wider, and
+   the card's size must stay identical to a normal attachment's. The
+   differentiation is carried entirely by colour and the spine. */
+.chat-file-attachment.attachment-quote .attachment-filename {
+    color: var(--accent-color, #4f9cf7);
+}
+
+@media (hover: hover) {
+    .chat-file-attachment.attachment-quote:hover {
+        background: linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--accent-color, #4f9cf7) 20%, transparent),
+            color-mix(in srgb, var(--accent-color, #4f9cf7) 12%, transparent)
+        );
+    }
+}
+
+/* ── On the user's own bubble ──
+   The bubble is painted with --user-msg-color, so an accent-tinted card would
+   sink into it. Flip the treatment to a translucent white card, matching how
+   the other attachment chips behave inside a user bubble. The spine stays, so
+   a quote is still recognisable as a quote here. */
+.chat-message.user .chat-file-attachment.attachment-quote {
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.22),
+        rgba(255, 255, 255, 0.12)
+    );
+    border-color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.98);
+    box-shadow:
+        inset 3px 0 0 0 rgba(255, 255, 255, 0.9),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
+}
+
+.chat-message.user .chat-file-attachment.attachment-quote .attachment-filename {
+    color: rgba(255, 255, 255, 0.98);
+}
+
+@media (hover: hover) {
+    .chat-message.user .chat-file-attachment.attachment-quote:hover {
+        background: linear-gradient(
+            180deg,
+            rgba(255, 255, 255, 0.3),
+            rgba(255, 255, 255, 0.2)
+        );
+    }
+}
+
+/* ── Settings controls (shared) ───────────────────────────────────────────────
+   Single source of truth for the settings controls that were previously
+   duplicated across components: the switch (copied verbatim into SettingsItem
+   AND WallpaperSetting, plus a third copy under `.group-panel__switch`), and
+   the slider trio (slider / slider-value / slider-reset, copied into both).
+   A size change had to be made in 2–3 places and silently diverged when one
+   was missed.
+
+   Why global and not scoped: a scoped rule compiles to `.foo[data-v-x]`
+   (0,2,0), which OUTRANKS this single class (0,1,0). Any geometry left behind
+   in a component's scoped block would silently win and undo the shared size —
+   so the components keep only layout (flex/margin) and all shape declarations
+   live here. Guard: settingsControls.css.test.ts.
+
+   Sizes align with the `.fbtn` pill language (30px tall) used by the settings
+   buttons; see docs/spec/client/design-guide.md. */
+
+/* iOS-style switch. 44x26 with a 22px thumb: travel = 44 - 22 - 2*2 = 18px. */
+.settings-item__switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 26px;
+  cursor: pointer;
+}
+
+.settings-item__switch-input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.settings-item__switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  background: var(--bg-tertiary);
+  transition: background var(--duration-slow) ease;
+}
+
+.settings-item__switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  transition: transform var(--duration-slow) ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.settings-item__switch-input:checked + .settings-item__switch-track {
+  background: var(--accent-color);
+}
+
+.settings-item__switch-input:checked + .settings-item__switch-track::after {
+  transform: translateX(18px);
+}
+
+/* Slider row: numeric readout + range + resident reset button. */
+.settings-item__slider-value {
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  min-width: 36px;
+  text-align: right;
+}
+
+.settings-item__slider {
+  width: 100px;
+  cursor: pointer;
+  accent-color: var(--accent-color);
+}
+
+/* Resident (never v-if'd) so the control cluster width is constant — the
+   button vanishing on reset was the reported layout shift. Inert at the
+   default value via :disabled + the "unusable" opacity token. */
+.settings-item__slider-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  font-size: var(--font-size-md);
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.settings-item__slider-reset:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+.settings-item__slider-reset:active {
+  color: var(--accent-color);
+}
+
+/* ==========================================================================
+   Shared loading ring (the visual core of LoadingIndicator)
+   ==========================================================================
+
+   The ring itself is declared GLOBALLY, not in LoadingIndicator's <style
+   scoped> block, because not every caller can render a Vue component:
+
+     - chat tool-call body      → injected as an HTML string (v-html)
+     - mermaid diagram loading  → injected via innerHTML in a util
+     - localhost open button    → a CSS ::after pseudo-element
+
+   Those three get no `data-v-*` attribute, so a scoped rule can never match
+   them (design-guide red line 1: scoped styles silently miss injected DOM).
+   Keeping one global definition is what makes the ring a single
+   implementation instead of five lookalikes.
+
+   What the component owns is only the wrapper layout (.loading-indicator).
+   Callers may mark up either:
+     - <LoadingIndicator> — renders <div class="li-spinner">
+     - a plain `<span class="li-spinner">` — for injected HTML
+
+   Size comes from `--li-size` (default md). The `size-*` tiers below are the
+   component's wrapper classes; a caller that cannot render the component sets
+   `--li-size` on the ring element itself instead (specificity 0,2,0 beats the
+   0,1,0 base, and such callers never sit inside a `size-*` wrapper, so the two
+   mechanisms cannot collide). Border weight is derived so every tier keeps the
+   same optical ratio. Colour: `--li-color` for the moving arc,
+   `--li-track-color` for the resting ring — both fall back to theme tokens.
+
+   `--li-duration` exists so a call site can keep the speed it shipped with
+   without forking the shape: the callers migrated onto this ring used 0.6s,
+   while the component's own default is 0.8s. Prefer the default unless a site
+   has a specific reason. */
+.li-spinner {
+  --li-size: 28px; /* default md */
+  /* Border weight is derived from the size so every tier keeps the same
+     optical ratio — there is exactly ONE ratio in the codebase. Call sites set
+     only --li-size; a site that hard-codes --li-border drifts away from this
+     ratio (and the drift is invisible until you compare two rings side by
+     side). Divisor 6 (was 9) makes the ring read clearly at the small sizes
+     used in buttons, anchors and tool cards. */
+  --li-border: calc(var(--li-size) / 6);
+  --li-duration: 0.8s;
+  /* inline-block (not block) so a bare <span class="li-spinner"> works where a
+     component cannot be rendered. Inside the component's flex wrapper it is a
+     flex item, which blockifies anyway, so this changes nothing there. */
+  display: inline-block;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: var(--li-size);
+  height: var(--li-size);
+  border-radius: 50%;
+  border: var(--li-border) solid var(--li-track-color, var(--border-color, #e9ecef));
+  border-top-color: var(--li-color, var(--accent-color, #0066cc));
+  animation: li-spin var(--li-duration) linear infinite;
+}
+
+.size-sm .li-spinner {
+  --li-size: 14px;
+}
+
+.size-md .li-spinner {
+  --li-size: 28px;
+}
+
+.size-lg .li-spinner {
+  --li-size: 36px;
+}
+
+@keyframes li-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ==========================================================================
+   Skeleton placeholder
+   A shimmering grey block used while a session switch is in flight: the chat
+   title bar (App.vue) and the message area (ChatSkeleton.vue) both stand in
+   with these blocks until the real content arrives.
+
+   Declared GLOBALLY, not scoped, because two different components in two
+   different style scopes paint them (App.vue's header and the chat list).
+   Per design-guide red line 2, a class shared across components must live in
+   the global sheet — a scoped copy would silently miss the other consumer.
+
+   Geometry is supplied by the caller (`width`/`height`/`border-radius`); this
+   rule only owns the fill and the shimmer. `--skeleton-radius` lets a caller
+   opt into a pill shape without redeclaring the whole rule.
+
+   `--skeleton-fill` / `--skeleton-sheen` exist for the places whose backdrop is
+   not the theme's: the PDF viewer and the lightbox both paint on always-dark
+   chrome, where the theme-derived grey is invisible. Overriding those two
+   variables keeps the shimmer definition in one place — a caller that instead
+   restated `background-image` would fork it.
+
+   The variables are deliberately NOT declared here, only consumed with a
+   fallback. A custom property resolves on the element that declares it, so
+   declaring them on `.skeleton-block` made every ancestor override a no-op:
+   `.pdf-loading-skeleton` set `--skeleton-fill` on the skeleton root and the
+   blocks below it still painted `--bg-tertiary` (measured in Chromium: dark
+   theme, `rgb(33,38,45)` instead of `rgba(255,255,255,.18)`), which is the
+   exact invisibility that override was added to fix. */
+.skeleton-block {
+  --skeleton-radius: var(--radius-sm);
+  display: block;
+  border-radius: var(--skeleton-radius);
+  background-color: var(--skeleton-fill, var(--bg-tertiary, #e9ecef));
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--skeleton-sheen, color-mix(in srgb, var(--bg-primary, #fff) 60%, transparent)) 50%,
+    transparent 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 200% 100%;
+  background-position: 150% 0;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+/* Circle variant for avatar discs. */
+.skeleton-block.skeleton-circle {
+  --skeleton-radius: 50%;
+  flex-shrink: 0;
+}
+
+@keyframes skeleton-shimmer {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+
+/* Unlike BusyBar / the running comet, the shimmer carries NO information —
+   the placeholder block itself already says "loading". Freezing it just makes
+   the grey blocks static, which is exactly what reduced-motion users want. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   AskUserQuestion option indicator — a CSS-DRAWN control, never a glyph.
+
+   Used by the chat card (ContentBlocks) and the tool detail drawer
+   (ToolDetailDrawer) — hence GLOBAL, not scoped (design-guide red line 2).
+
+   Why not a glyph: the indicator used to be a character (◯/● for radio,
+   ☐/☑ for checkbox). A glyph's rendered size is a property of the FONT, so no
+   pair can be kept size-matched across fonts. Concretely, the obvious
+   "hollow circle" ◯ (U+25EF LARGE CIRCLE) is 41px of ink at 40pt in DejaVu but
+   38px in Noto Sans CJK — while the filled ● (U+25CF) is 31px in DejaVu and
+   36px in Noto Sans CJK. So in the font this app actually renders with, the
+   hollow and filled circles are within 2px (the "fix" was invisible), while in
+   another font they differ by 10px. A fixed box is identical everywhere by
+   construction, so the two states can never diverge.
+
+   What lives here is shape + geometry + the selected-state drawing. Colour is
+   left to the call site (it differs: the card uses orange, the drawer uses
+   --accent-color) and is consumed through `currentColor` — so the existing
+   per-call-site `color` rules keep working unchanged.
+
+   The outer box NEVER changes size between states: the radio grows an inner
+   dot, the checkbox fills and shows a check. That is the whole point.
+   ========================================================================== */
+
+.ask-option-indicator {
+    /* inline-block, not inline: `width`/`height` are ignored on an inline box,
+       so the control would collapse to the border width. The flex parent would
+       blockify it anyway, but making it explicit keeps the box correct even if
+       the indicator is ever rendered outside a flex row. */
+    display: inline-block;
+    flex-shrink: 0;
+    position: relative;
+    box-sizing: border-box;
+    width: 16px;
+    height: 16px;
+    /* Optical alignment with the first line of the option label (12px text):
+       nudges the box centre onto the first line box centre. */
+    margin-top: 2px;
+    border: 1.5px solid currentColor;
+    border-radius: 50%;               /* radio by default */
+    transition: background var(--duration-base), border-color var(--duration-base);
+}
+
+/* Multi-select variant: a square checkbox instead of a round radio. */
+.ask-option-indicator--checkbox {
+    border-radius: var(--radius-xs);
+}
+
+/* Single-select, selected: an inner dot. `inset` is measured from the padding
+   box, so 3px inside the 1.5px border yields a ~7px dot centred in the 16px
+   ring — the ring itself is unchanged, so nothing resizes on toggle. */
+.ask-option-indicator--radio::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0;
+    transition: opacity var(--duration-base);
+}
+
+.ask-question-option.selected .ask-option-indicator--radio::after {
+    opacity: 1;
+}
+
+/* Multi-select, selected: fill the box and draw a check. The check colour is
+   the page background so it reads as a knockout on the filled box, matching
+   the accent-on-white checkbox already used in QuickCommandEditModal. */
+.ask-question-option.selected .ask-option-indicator--checkbox {
+    background: currentColor;
+}
+
+.ask-option-indicator--checkbox::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 4px;
+    height: 8px;
+    border: solid var(--bg-primary, #fff);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    opacity: 0;
+    transition: opacity var(--duration-base);
+}
+
+.ask-question-option.selected .ask-option-indicator--checkbox::after {
+    opacity: 1;
+}
+
+/* ==========================================================================
+   AskUserQuestion submit shortcut hint ("Ctrl+Enter" / "Cmd+Enter").
+
+   Emitted by renderToolDetail.ts as a SIBLING of the buttons, i.e. through
+   `v-html` — so it can never match a scoped rule (design-guide red line 1).
+   Global here, like the indicator above.
+
+   Placement: the actions row is right-aligned, so the hint takes the free space
+   on the LEFT (`margin-right: auto`) instead of sitting inside the Submit
+   button. It describes a keyboard gesture for the whole card, not a second
+   label on one button — inside the button it read as part of the label and
+   competed with it.
+
+   Form: PLAIN muted text, deliberately not a bordered keycap. The keycap box
+   made it look like a clickable control, and the chord glyphs it used to hold
+   (⌃↵) were abstract enough to be unreadable. Muted so it stays subordinate to
+   the two buttons it sits beside.
+
+   Hidden on touch-primary pointers — there is no physical keyboard to press,
+   and the hint would only add noise on a phone.
+   ========================================================================== */
+
+.ask-submit-kbd {
+    margin-right: auto;
+    align-self: center;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-normal);
+    white-space: nowrap;
+}
+
+@media (pointer: coarse) {
+    .ask-submit-kbd {
+        display: none;
+    }
+}
+
+/* Once answered, the row only reports the outcome ("Submitted") — a chord hint
+   there would point at an action that no longer exists. */
+.ask-question-view.ask-submitted .ask-submit-kbd {
+    display: none;
+}
+
+/* ==========================================================================
+   AskUserQuestion card focus ring.
+
+   The card carries `tabindex="-1"` so it can receive focus programmatically —
+   that is what makes Ctrl/Cmd+Enter work right after a mouse pick on an option
+   (the options are plain <div>s, so the click left focus on <body> and the
+   keydown never reached the card). See focusAskView in renderToolDetail.ts.
+
+   `:focus-visible` and not `:focus`: the focus here is a side effect of a mouse
+   click, and a UA ring appearing around the whole card on every option click
+   would look like a rendering glitch. Keyboard users still get the ring.
+   ========================================================================== */
+
+.ask-question-view:focus {
+    outline: none;
+}
+
+.ask-question-view:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
