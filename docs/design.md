@@ -165,7 +165,10 @@ watching the app fail to mount. It is now pinned by `AppConfigTest`.
 
 ## The build uses relative asset paths
 
-The page is loaded from `file:///android_asset/web/`, so an absolute `/assets/...`
-URL resolves to the filesystem root and every chunk 404s. `base: './'` plus
-relative `href`s in `index.html` is what makes it work — and there is no server to
-404 loudly, so the failure mode is a blank page.
+The page is served from `https://appassets.androidplatform.net/web/`, so an
+absolute `/assets/...` URL would resolve to the ORIGIN root (`/assets/...`, which
+the loader does not map) and every chunk would 404. `base: './'` plus relative
+`href`s in `index.html` is what makes it resolve under `/web/`.
+
+There is no server to 404 loudly, so the failure mode is a blank page — which is
+why the loader path and the bundle layout are both pinned by tests.

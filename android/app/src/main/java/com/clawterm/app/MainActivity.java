@@ -33,10 +33,11 @@ import org.json.JSONObject;
  *
  * ## Why there is no server
  *
- * The UI is loaded from `file:///android_asset/web/index.html`, and every data
- * operation goes through {@link BridgeDispatcher} straight into JSch and SQLite.
- * Nothing listens on a port, so nothing on the device (or the network) can reach
- * the API, and there is no process to keep alive or restart.
+ * The UI is served from the APK's assets over a WebView-local https origin (see
+ * {@link AppConfig#startUrl}), and every data operation goes through
+ * {@link BridgeDispatcher} straight into JSch and SQLite. Nothing listens on a
+ * port, so nothing on the device (or the network) can reach the app's data, and
+ * there is no process to keep alive or restart.
  *
  * ## Why the WebView is still there
  *
