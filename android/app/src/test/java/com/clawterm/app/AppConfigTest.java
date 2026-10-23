@@ -22,15 +22,28 @@ public class AppConfigTest {
         return ApplicationProvider.getApplicationContext();
     }
 
-    /** The UI must come from the APK, not from a loopback server. */
+    /**
+     * The UI must be served from the asset-loader origin, NOT from file://.
+     *
+     * A `file://` page has an opaque origin and the browser blocks ES module and
+     * stylesheet loads from it with a CORS error — the app renders a blank
+     * screen. This was a real bug: the bundle loaded fine over http and showed
+     * nothing on a device.
+     */
     @Test
-    public void startUrlIsALocalAsset() {
+    public void startUrlUsesTheAssetLoaderOrigin() {
         String url = AppConfig.startUrl();
-        assertTrue("the page must load from the apk, got " + url,
-                url.startsWith("file:///android_asset/"));
+        assertEquals("https://" + AppConfig.ASSET_HOST + "/web/index.html", url);
+        assertFalse("file:// blocks ES modules, the app would be blank",
+                url.startsWith("file://"));
         assertFalse("a client-only build must not talk to a local server",
                 url.contains("127.0.0.1") || url.contains("localhost"));
-        assertFalse(url.contains("://http"));
+    }
+
+    /** The asset host must be the reserved Android one, never a real domain. */
+    @Test
+    public void assetHostIsTheReservedDomain() {
+        assertEquals("appassets.androidplatform.net", AppConfig.ASSET_HOST);
     }
 
     /** Data must live in the app sandbox: no storage permission, no other app. */
@@ -90,12 +103,21 @@ public class AppConfigTest {
                 jniLibs.exists());
     }
 
-    /** The web bundle must be packaged as assets, or the app has no UI. */
+    /**
+     * The web bundle must be packaged as assets, or the app has no UI.
+     *
+     * The asset loader maps the origin's `/web/` prefix onto `assets/web/`, so
+     * this exact directory layout is what makes `startUrl()` resolve. Moving the
+     * bundle would produce a blank screen with only a 404 in logcat.
+     */
     @Test
     public void webBundleIsAnAsset() throws Exception {
-        java.io.File index = new java.io.File(appDir(), "src/main/assets/web/index.html");
-        assertTrue("the built UI must be at assets/web/index.html, missing: " + index,
-                index.isFile());
+        java.io.File web = new java.io.File(appDir(), "src/main/assets/web");
+        assertTrue("the built UI must be at assets/web/, missing: " + web, web.isDirectory());
+        assertTrue("index.html is missing", new java.io.File(web, "index.html").isFile());
+        // The bundle references its chunks relatively, so they must sit beside it.
+        java.io.File js = new java.io.File(web, "js");
+        assertTrue("the JS chunks must be at assets/web/js/, missing: " + js, js.isDirectory());
     }
 
     private java.io.File appDir() throws Exception {

@@ -21,6 +21,7 @@ import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.webkit.WebViewAssetLoader;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -49,6 +50,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String TAG = "ClawTerm";
 
     private WebView webView;
+    private WebViewAssetLoader assetLoader;
     private TextView errorView;
     private Db db;
     private SecretStore secrets;
@@ -123,6 +125,11 @@ public class MainActivity extends AppCompatActivity {
                     "connections", connections, "error", error == null ? "" : error));
         });
 
+        // Assets are served over https, not file://: see AppConfig.startUrl.
+        assetLoader = new WebViewAssetLoader.Builder()
+                .addPathHandler("/web/", new WebViewAssetLoader.AssetsPathHandler(this))
+                .build();
+
         configureWebView(webView);
         bridge = new BridgeDispatcher(this, db, secrets, terminals, forwards, webView);
         webView.addJavascriptInterface(new NativeInterface(), "ClawTermNative");
@@ -189,12 +196,21 @@ public class MainActivity extends AppCompatActivity {
         wv.setWebChromeClient(new WebChromeClient());
         wv.setWebViewClient(new WebViewClient() {
             @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view,
+                                                              WebResourceRequest request) {
+                // Serve the APK's assets under the https origin. Returning null
+                // lets the request through to the network, which is what a link
+                // the user tapped should do.
+                return assetLoader.shouldInterceptRequest(request.getUrl());
+            }
+
+            @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-                // Anything that is not our own asset page is a link the user
+                // Anything that is not our own app origin is a link the user
                 // tapped in terminal output; hand it to the system browser so the
                 // app never becomes an uncontrolled browser.
-                if (!url.startsWith("file:///android_asset/")) {
+                if (!url.startsWith("https://" + AppConfig.ASSET_HOST + "/")) {
                     try {
                         startActivity(new android.content.Intent(
                                 android.content.Intent.ACTION_VIEW, request.getUrl()));

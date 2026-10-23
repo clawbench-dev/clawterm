@@ -44,6 +44,7 @@ export default {
     setAndEnter: 'Set and continue',
     mismatch: 'Passwords do not match',
     tooShort: 'Use at least 4 characters',
+    setupRequired: 'No password is set yet — reopen the app to set one',
     wrong: 'Wrong password',
     failed: 'Sign-in failed',
   },

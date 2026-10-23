@@ -44,6 +44,7 @@ export default {
     setAndEnter: '设置并进入',
     mismatch: '两次输入的密码不一致',
     tooShort: '密码至少 4 位',
+    setupRequired: '尚未设置访问密码，请重新打开应用',
     wrong: '密码错误',
     failed: '登录失败',
   },

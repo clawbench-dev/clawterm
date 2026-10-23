@@ -217,12 +217,23 @@ const toastState = ref<ToastState>({ visible: false, message: '', type: 'info' }
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
- * Show a transient message. A second call replaces the first rather than
- * queueing: two stacked toasts on a phone cover the header.
+ * Show a transient message.
+ *
+ * A second call replaces the first rather than queueing: two stacked toasts on a
+ * phone cover the header.
+ *
+ * `duration = 0` means "stay until something replaces it" — the pattern for a
+ * `loading` toast that a result toast then overwrites. Passing 0 to
+ * `setTimeout` would fire on the next tick instead, so the loading toast would
+ * disappear instantly and the user would see a flash.
  */
 export function showToast(message: string, type: ToastType = 'info', duration = 2600) {
-  if (toastTimer) clearTimeout(toastTimer)
+  if (toastTimer) {
+    clearTimeout(toastTimer)
+    toastTimer = null
+  }
   toastState.value = { visible: true, message, type }
+  if (duration <= 0) return
   toastTimer = setTimeout(() => {
     toastState.value = { ...toastState.value, visible: false }
     toastTimer = null

@@ -13,7 +13,8 @@ the only client is the app's own WebView.
 The client-only design:
 
 - **SSH** runs in-process via JSch (pure Java, no NDK, no native library).
-- **The UI** loads from `assets/web/`, so there is no HTTP origin at all.
+- **The UI** is served from `assets/web/` through `WebViewAssetLoader`, so there
+  is no server and no network origin.
 - **Data** is SQLite opened directly by the app.
 - **Credentials** are AES-GCM files written by the app.
 
@@ -141,6 +142,26 @@ The 157 community palettes are inlined as data instead of imported from
 `xterm-theme`: the package exports every scheme from one module, so importing it
 to render a picker would put all 157 in the main bundle for a screen most users
 never open.
+
+## The UI is served over https, not file://
+
+`WebViewAssetLoader` maps `https://appassets.androidplatform.net/web/` onto the
+APK's `assets/web/`. This is not a preference:
+
+A `file://` page has an **opaque origin**, and the browser refuses to load an ES
+module or a stylesheet from it:
+
+```
+Access to script at 'file:///…/js/index.js' from origin 'null' has been blocked
+by CORS policy
+```
+
+The result is a blank screen with no UI to explain it — and the bundle loads fine
+over http, so a browser test does not catch it. `appassets.androidplatform.net`
+is a reserved host the loader intercepts, so nothing leaves the device.
+
+This was found by loading the built bundle over `file://` in a real browser and
+watching the app fail to mount. It is now pinned by `AppConfigTest`.
 
 ## The build uses relative asset paths
 

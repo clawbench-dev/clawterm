@@ -19,7 +19,7 @@ This version removes all of it:
 | | Before | Now |
 |---|---|---|
 | SSH | Go process over a local socket | JSch, in the app process |
-| UI | served by the Go process | loaded from `assets/web/` |
+| UI | served by the Go process | served from `assets/web/` over the asset-loader origin |
 | Data | Go + SQLite over HTTP | SQLite directly, in-process |
 | Credentials | Go + AES-GCM | Java `AES/GCM/NoPadding` |
 | Open ports | 1 (loopback HTTP + WebSocket) | **0** |
@@ -27,6 +27,13 @@ This version removes all of it:
 
 The UI is still Vue in a WebView — that is a rendering choice, not a server. It
 talks to the Java layer through one JavaScript bridge method.
+
+It is served from `https://appassets.androidplatform.net/web/` via
+`WebViewAssetLoader`, **not** from `file:///android_asset/`. A `file://` page has
+an opaque origin and the browser blocks ES module and stylesheet loads from it
+with a CORS error, which renders a completely blank screen. The reserved
+`appassets.androidplatform.net` host is the official workaround and never leaves
+the device.
 
 ## What it does
 
@@ -76,7 +83,7 @@ protocol). That is how the UI is tested without an emulator.
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ WebView (file:///android_asset/web/index.html)       │
+│ WebView (https://appassets…/web/index.html)          │
 │   Vue 3 · xterm.js · 111 tests                       │
 │                                                      │
 │   window.ClawTermNative.invoke(id, method, json) ───┐│
@@ -140,6 +147,8 @@ off than one who knows they are not.
 
 - **No listening socket.** Verified at build time (no native libs) and by design
   (no `ServerSocket` outside `ForwardManager`, which binds loopback only).
+- The UI origin is `appassets.androidplatform.net`, a reserved domain that cannot
+  resolve on the internet; the asset loader intercepts it inside the WebView.
 - The access password is a **local device gate**, not an account. It is stored as
   a salted SHA-256 and compared with `MessageDigest.isEqual` (constant time).
 - Changing the password requires the **current** one, so an unlocked phone cannot

@@ -18,9 +18,23 @@ final class AppConfig {
 
     private AppConfig() {}
 
+    /**
+     * The origin the UI is served from.
+     *
+     * NOT `file:///android_asset/…`: a `file://` page has an opaque origin, and
+     * the browser blocks ES module and stylesheet loads from it with a CORS
+     * error — the app would render a blank screen with nothing in the UI to
+     * explain why. `WebViewAssetLoader` serves the same APK assets over a real
+     * https origin instead, which the module loader accepts.
+     *
+     * The host is the reserved `appassets.androidplatform.net` domain, so it can
+     * never collide with a real site and never leaves the device.
+     */
+    static final String ASSET_HOST = "appassets.androidplatform.net";
+
     /** The page the WebView loads. */
     static String startUrl() {
-        return "file:///android_asset/web/index.html";
+        return "https://" + ASSET_HOST + "/web/index.html";
     }
 
     /**

@@ -96,10 +96,16 @@ async function submit() {
     confirmPassword.value = ''
     emit('success')
   } catch (err) {
-    // A 401 is a wrong password; anything else is a real failure and must say
+    // Branch on the host's stable code, not on message text: the message comes
+    // from the native layer and may be localised or reworded, while the code is
+    // part of the protocol. Anything unrecognised is a real failure and must say
     // so rather than blaming the user's typing.
+    const code = (err as { code?: string }).code ?? ''
     const msg = err instanceof Error ? err.message : String(err)
-    error.value = /401|not authenticated|wrong/i.test(msg) ? t('login.wrong') : `${t('login.failed')}: ${msg}`
+    if (code === 'wrong_password') error.value = t('login.wrong')
+    else if (code === 'weak_password') error.value = t('login.tooShort')
+    else if (code === 'needs_setup') error.value = t('login.setupRequired')
+    else error.value = `${t('login.failed')}: ${msg}`
   } finally {
     busy.value = false
   }
