@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { applyModifiers } from '@/utils/terminalProtocol'
+import { applyModifiers } from '@/utils/keys'
 
 /**
  * Ctrl/Alt state for the on-screen key bar.

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "rm -rf .clawterm-web && node --max-old-space-size=2048 ./node_modules/vite/bin/vite.js build",
+    "build": "rm -rf .clawterm-web && node --max-old-space-size=2048 ./node_modules/vite/bin/vite.js build && rm -rf android/app/src/main/assets/web && cp -r .clawterm-web android/app/src/main/assets/web",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

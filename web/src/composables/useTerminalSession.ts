@@ -1,11 +1,8 @@
 import { ref, type Ref } from 'vue'
 import { appLog } from '@/utils/appLog'
-import {
-  ErrCode,
-  terminalWsUrl,
-  type ClientMessage,
-  type ServerMessage,
-} from '@/utils/terminalProtocol'
+import { on, NativeError } from '@/native/bridge'
+import * as api from '@/native/api'
+import { ErrorCode } from '@/native/api'
 
 const TAG = 'TerminalSession'
 
@@ -22,23 +19,37 @@ export interface TerminalSessionOptions {
   title: string
   cols: number
   rows: number
-  /** Called with raw PTY text. Replay arrives before any live output. */
+  /** Called with raw PTY text (already decoded from base64 by this class). */
   onData: (data: string) => void
   onExit?: (code: number) => void
-  /** Fired once per session id, so the tab can record it for re-attach. */
+  /** Fired once per session id, so the tab can record it. */
   onSessionId?: (id: string) => void
 }
 
 /**
- * One terminal tab's WebSocket.
+ * One terminal session, backed by an SSH connection held in the native layer.
  *
- * Reconnect policy: retry with capped exponential backoff while the app is in
- * the foreground, and re-attach to the SAME server session id. The server keeps
- * the PTY alive for a grace period after a detach, so a phone that slept for a
- * minute comes back to the same shell rather than a fresh login.
+ * ## Why the connection lives in native
  *
- * A `session_gone` answer means the grace period expired — that is terminal
- * (the PTY is gone), so it stops retrying instead of spinning forever.
+ * The terminal is a PTY on the far side of an SSH channel. Doing that in
+ * JavaScript is not possible (no sockets, no channel multiplexing, and the
+ * WebView has no exec), so the SSH client and the channel are native. This class
+ * is the VIEW side: it holds the tab's state and forwards keystrokes.
+ *
+ * ## Reconnect
+ *
+ * The native layer keeps the session alive after a failed WRITE (a socket that
+ * died while the phone slept); `ssh.connect` with an existing `sessionId`
+ * re-attaches to the same channel. `session_gone` means the channel is really
+ * dead and starting a new one is the user's decision.
+ *
+ * ## Base64 on the wire
+ *
+ * PTY bytes are not valid UTF-8 in general (a half-written multi-byte character
+ * is normal, and escape sequences contain arbitrary bytes). The bridge is a
+ * string channel, so native base64-encodes and this decodes back to bytes with
+ * `TextDecoder`, which buffers an incomplete sequence instead of emitting a
+ * replacement character.
  */
 export class TerminalSession {
   readonly state: Ref<ConnectionState> = ref('idle')
@@ -46,117 +57,139 @@ export class TerminalSession {
   readonly errorCode: Ref<string> = ref('')
   readonly sessionId: Ref<string> = ref('')
 
-  private ws: WebSocket | null = null
   private opts: TerminalSessionOptions
-  private attempt = 0
-  private retryTimer: ReturnType<typeof setTimeout> | null = null
   private disposed = false
   private lastSize = { cols: 0, rows: 0 }
+  /** What the host already knows. Separate from lastSize so a resize during the
+   *  dial is still sent once the connection is up. */
+  private sentSize = { cols: 0, rows: 0 }
+  private unsubscribers: (() => void)[] = []
+  private decoder = new TextDecoder('utf-8')
+  private connecting = false
+  private retryTimer: ReturnType<typeof setTimeout> | null = null
+  private attempt = 0
 
   constructor(opts: TerminalSessionOptions) {
     this.opts = opts
     this.lastSize = { cols: opts.cols, rows: opts.rows }
+    this.subscribe()
   }
 
-  /** Open (or re-open) the connection. */
-  connect(): void {
-    if (this.disposed) return
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-      return
+  private subscribe() {
+    // Events are broadcast to every listener; filter by our own session id so
+    // two open tabs cannot consume each other's output.
+    this.unsubscribers.push(on('terminal.data', (p) => {
+      if (p.sessionId !== this.sessionId.value) return
+      const b64 = typeof p.data === 'string' ? p.data : ''
+      if (!b64) return
+      this.opts.onData(this.decode(b64))
+    }))
+
+    this.unsubscribers.push(on('terminal.exit', (p) => {
+      if (p.sessionId !== this.sessionId.value) return
+      this.state.value = 'exited'
+      this.opts.onExit?.(Number(p.code ?? 0))
+    }))
+
+    this.unsubscribers.push(on('terminal.state', (p) => {
+      if (p.sessionId !== this.sessionId.value) return
+      const next = String(p.state ?? '')
+      if (next === 'connected') {
+        this.attempt = 0
+        this.state.value = 'connected'
+      } else if (next === 'reconnecting') {
+        this.state.value = 'reconnecting'
+      } else if (next === 'error') {
+        this.state.value = 'error'
+        this.error.value = String(p.message ?? '')
+        this.errorCode.value = String(p.code ?? '')
+      }
+    }))
+  }
+
+  /**
+   * Decode base64 → bytes → text.
+   *
+   * `stream: true` is the important part: a multi-byte character split across
+   * two chunks must be held, not turned into U+FFFD. Without it, every chunk
+   * boundary in CJK output shows a replacement character.
+   */
+  private decode(b64: string): string {
+    try {
+      const binary = atob(b64)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+      return this.decoder.decode(bytes, { stream: true })
+    } catch (err) {
+      appLog.w(TAG, 'failed to decode chunk', String(err))
+      return ''
     }
-    this.clearRetry()
+  }
+
+  /** Open (or re-attach) the session. */
+  async connect(): Promise<void> {
+    if (this.disposed || this.connecting) return
+    this.connecting = true
     const reattach = this.sessionId.value !== ''
     this.state.value = reattach ? 'reconnecting' : 'connecting'
     this.error.value = ''
     this.errorCode.value = ''
 
-    const url = terminalWsUrl({
-      hostId: reattach ? undefined : this.opts.hostId,
-      sessionId: reattach ? this.sessionId.value : undefined,
-      cols: this.lastSize.cols,
-      rows: this.lastSize.rows,
-      title: this.opts.title,
-    })
-
-    let ws: WebSocket
     try {
-      ws = new WebSocket(url)
-    } catch (err) {
-      this.fail('websocket_failed', String(err))
-      return
-    }
-    this.ws = ws
-
-    ws.onopen = () => {
-      this.attempt = 0
-      this.state.value = 'connected'
-      appLog.d(TAG, `connected ${this.sessionId.value || '(new)'}`)
-    }
-
-    ws.onmessage = (ev) => {
-      let msg: ServerMessage
-      try {
-        msg = JSON.parse(ev.data as string) as ServerMessage
-      } catch {
-        appLog.w(TAG, 'unparsable frame')
-        return
+      const res = await api.connectSession({
+        hostId: this.opts.hostId,
+        cols: this.lastSize.cols,
+        rows: this.lastSize.rows,
+        title: this.opts.title,
+        // Re-attach by id when we have one; the native side ignores hostId then.
+        ...(reattach ? { sessionId: this.sessionId.value } : {}),
+      })
+      if (res?.sessionId && res.sessionId !== this.sessionId.value) {
+        this.sessionId.value = res.sessionId
+        this.opts.onSessionId?.(res.sessionId)
       }
-      this.handle(msg)
-    }
-
-    ws.onclose = () => {
-      this.ws = null
-      if (this.disposed) return
-      if (this.state.value === 'exited') return
-      // The server closing without an `exit` frame means the socket died, not
-      // the shell: retry. Backoff caps at 8s so a long outage does not leave
-      // the tab frozen for minutes after the network returns.
-      this.scheduleRetry()
-    }
-
-    ws.onerror = () => {
-      // `onclose` always follows and owns the retry decision; logging here
-      // would double-report every disconnect.
-      appLog.w(TAG, 'socket error')
+      this.state.value = 'connected'
+      this.attempt = 0
+      // The geometry went with ssh.connect, so record it as already sent. Only a
+      // size that CHANGED while the dial was in flight needs a follow-up, and
+      // `resize()` compares against this value to decide.
+      this.sentSize = { cols: this.lastSize.cols, rows: this.lastSize.rows }
+    } catch (err) {
+      this.handleConnectError(err)
+    } finally {
+      this.connecting = false
     }
   }
 
-  private handle(msg: ServerMessage) {
-    switch (msg.type) {
-      case 'ready':
-        if (msg.sessionId && msg.sessionId !== this.sessionId.value) {
-          this.sessionId.value = msg.sessionId
-          this.opts.onSessionId?.(msg.sessionId)
-        }
-        this.state.value = 'connected'
-        break
-      case 'replay':
-      case 'output':
-        if (msg.data) this.opts.onData(msg.data)
-        break
-      case 'exit':
-        this.state.value = 'exited'
-        this.opts.onExit?.(msg.code ?? 0)
-        break
-      case 'error':
-        this.error.value = msg.message || 'error'
-        this.errorCode.value = msg.errcode || ''
-        // EVERY error frame is terminal: the server has already decided the
-        // attempt failed and is about to close the socket, so retrying would
-        // just loop. `session_gone` additionally clears the id — the PTY is
-        // gone and a fresh session is a user decision, not a retry.
-        if (msg.errcode === ErrCode.sessionGone) {
-          this.state.value = 'exited'
-          this.sessionId.value = ''
-        } else {
-          this.state.value = 'error'
-        }
-        this.disposed = true
-        this.close()
-        break
-      case 'pong':
-        break
+  private handleConnectError(err: unknown) {
+    const e = err as NativeError
+    this.error.value = e?.message ?? String(err)
+    this.errorCode.value = e?.code ?? ''
+
+    if (this.errorCode.value === ErrorCode.sessionGone) {
+      // The channel is gone for good. Clearing the id means the next attempt
+      // starts a fresh session instead of re-attaching to a corpse.
+      this.sessionId.value = ''
+      this.state.value = 'exited'
+      this.disposed = true
+      return
     }
+    if (this.errorCode.value === ErrorCode.sessionBusy) {
+      this.state.value = 'error'
+      this.disposed = true
+      return
+    }
+    // A dial/auth/host-key failure is not retryable without user action, but it
+    // IS recoverable by pressing "reconnect" — keep the object usable.
+    if (this.errorCode.value === ErrorCode.hostKeyChanged
+      || this.errorCode.value === ErrorCode.authFailed
+      || this.errorCode.value === ErrorCode.connectionRefused
+      || this.errorCode.value === ErrorCode.timeout
+      || this.errorCode.value === ErrorCode.hostNotFound) {
+      this.state.value = 'error'
+      return
+    }
+    this.scheduleRetry()
   }
 
   private scheduleRetry() {
@@ -167,7 +200,7 @@ export class TerminalSession {
     const delay = Math.min(400 * 2 ** (this.attempt - 1), 8000)
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null
-      this.connect()
+      void this.connect()
     }, delay)
   }
 
@@ -178,52 +211,46 @@ export class TerminalSession {
     }
   }
 
-  private fail(code: string, message: string) {
-    this.errorCode.value = code
-    this.error.value = message
-    this.state.value = 'error'
-  }
-
   send(data: string) {
-    if (!data) return
-    this.write({ type: 'input', data })
+    if (!data || !this.sessionId.value) return
+    // Fire-and-forget: a keystroke must never block the UI, and a failed write
+    // surfaces as a state event from native rather than a rejected promise.
+    void api.writeSession(this.sessionId.value, data).catch((err) => {
+      appLog.w(TAG, 'write failed', String(err))
+    })
   }
 
   resize(cols: number, rows: number) {
     if (cols <= 0 || rows <= 0) return
-    if (cols === this.lastSize.cols && rows === this.lastSize.rows) return
     this.lastSize = { cols, rows }
-    this.write({ type: 'resize', cols, rows })
+    if (!this.sessionId.value) return
+    if (cols === this.sentSize.cols && rows === this.sentSize.rows) return
+    this.sentSize = { cols, rows }
+    void api.resizeSession(this.sessionId.value, cols, rows).catch(() => {})
   }
 
-  private write(msg: ClientMessage) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg))
-    }
-  }
-
-  /** Close the socket without ending the server-side session (tab switch). */
+  /** Keep the native session alive; only unsubscribe locally (tab switch). */
   detach() {
     this.clearRetry()
-    if (this.ws) {
-      this.ws.onclose = null
-      this.ws.close()
-      this.ws = null
-    }
+    this.unsubscribe()
   }
 
-  /** Permanently end this session (tab close). */
+  /** End the session for good (tab close). */
   close() {
     this.disposed = true
     this.clearRetry()
-    if (this.ws) {
-      this.ws.onclose = null
-      this.ws.close()
-      this.ws = null
+    this.unsubscribe()
+    if (this.sessionId.value) {
+      void api.closeSession(this.sessionId.value).catch(() => {})
+      this.sessionId.value = ''
     }
   }
 
-  /** Whether the shell has ended or the session is unrecoverable. */
+  private unsubscribe() {
+    for (const off of this.unsubscribers) off()
+    this.unsubscribers = []
+  }
+
   get isTerminal(): boolean {
     return this.state.value === 'exited' || this.state.value === 'error'
   }

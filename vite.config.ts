@@ -3,11 +3,9 @@ import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import { cpSync, existsSync, mkdirSync, readdirSync } from 'fs'
 
-// Build output directory, resolved relative to the process CWD by the Go
-// server (internal/frontend). Deliberately distinctive so it can never collide
-// with an unrelated directory on a real machine — a generic name such as
-// "public" matches macOS's ~/Public on a case-insensitive volume, which once
-// made the server serve an empty directory and every page 404.
+// Build output. The Go server is gone, so this directory is only a staging area
+// that `npm run build` copies into the APK's assets — the app has no server to
+// serve it from.
 const outDir = resolve(__dirname, '.clawterm-web')
 const srcAssets = resolve(__dirname, 'assets')
 
@@ -22,31 +20,31 @@ if (existsSync(srcAssets)) {
 
 export default defineConfig({
   root: resolve(__dirname, 'web'),
+  // Relative asset URLs: the page is loaded from file:///android_asset/web/, so
+  // an absolute "/assets/..." path would resolve to the filesystem root and
+  // every chunk would 404.
+  base: './',
   plugins: [vue()],
   resolve: {
     alias: { '@': resolve(__dirname, 'web/src') },
   },
   build: {
     outDir,
-    emptyOutDir: false, // keeps assets/ (icons, manifest) written above
+    emptyOutDir: false,
     target: 'es2020',
+    assetsDir: 'assets',
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
+        // Deterministic names: a file:// URL has no cache headers, and a stale
+        // hashed chunk after an in-place update is the classic "white screen
+        // after upgrade" — there is no server to 404 and trigger a reload.
+        entryFileNames: 'js/[name].js',
+        chunkFileNames: 'js/[name].js',
+        assetFileNames: 'assets/[name][extname]',
         manualChunks: {
-          // xterm is large and only needed once a terminal is opened.
           xterm: ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-web-links', '@xterm/addon-search'],
         },
-      },
-    },
-  },
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:20077',
-        ws: true,
-        changeOrigin: true,
       },
     },
   },

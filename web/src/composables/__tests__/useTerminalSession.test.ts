@@ -1,270 +1,261 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { TerminalSession } from '../useTerminalSession'
+import { _resetBridgeForTests, installBridgeCallbacks } from '@/native/bridge'
 
 /**
- * Minimal WebSocket double. The session only uses readyState, send, close and
- * the four event slots, so a hand-rolled fake keeps the test independent of
- * jsdom's partial WebSocket implementation.
+ * The terminal session over the native bridge.
+ *
+ * The interesting parts are the ones a real device exercises and a browser test
+ * cannot: base64 decoding across chunk boundaries, event filtering by session
+ * id, and the reconnect policy.
  */
-class FakeWS {
-  static instances: FakeWS[] = []
-  static OPEN = 1
-  static CONNECTING = 0
-  readyState = 0
-  url: string
-  sent: string[] = []
-  onopen: (() => void) | null = null
-  onmessage: ((ev: { data: string }) => void) | null = null
-  onclose: (() => void) | null = null
-  onerror: (() => void) | null = null
 
-  constructor(url: string) {
-    this.url = url
-    FakeWS.instances.push(this)
-  }
-
-  send(data: string) {
-    this.sent.push(data)
-  }
-
-  close() {
-    this.readyState = 3
-    this.onclose?.()
-  }
-
-  // Test helpers ---------------------------------------------------------
-  open() {
-    this.readyState = 1
-    this.onopen?.()
-  }
-
-  emit(msg: unknown) {
-    this.onmessage?.({ data: JSON.stringify(msg) })
-  }
-
-  drop() {
-    this.readyState = 3
-    this.onclose?.()
-  }
-
-  frames() {
-    return this.sent.map((s) => JSON.parse(s))
-  }
+interface FakeNative {
+  invoke: (id: string, method: string, payload: string) => void
+  calls: { id: string; method: string; payload: unknown }[]
 }
 
-function makeSession(overrides: Partial<ConstructorParameters<typeof TerminalSession>[0]> = {}) {
-  const data: string[] = []
-  const exits: number[] = []
-  const ids: string[] = []
-  const s = new TerminalSession({
-    hostId: 1,
-    title: 'h',
-    cols: 80,
-    rows: 24,
-    onData: (d) => data.push(d),
-    onExit: (c) => exits.push(c),
-    onSessionId: (id) => ids.push(id),
-    ...overrides,
-  })
-  return { s, data, exits, ids }
+let fake: FakeNative
+/** Reply behaviour per method; defaults to success. */
+let reply: (method: string, payload: unknown) => { ok: boolean; result: unknown; code?: string }
+
+function install() {
+  fake = {
+    calls: [],
+    invoke(id, method, payload) {
+      const parsed = payload ? JSON.parse(payload) : null
+      fake.calls.push({ id, method, payload: parsed })
+      const r = reply(method, parsed)
+      // Reply on a microtask, not a timer: the tests switch to fake timers for
+      // the retry logic, and a timer-based reply would never fire there.
+      Promise.resolve().then(() => {
+        if (r.ok) {
+          (window as unknown as Record<string, unknown>).__clawtermNativeResolve?.(
+            id, true, JSON.stringify(r.result ?? null))
+        } else {
+          (window as unknown as Record<string, unknown>).__clawtermNativeResolve?.(
+            id, false, JSON.stringify({ message: r.result ?? 'failed', code: r.code }))
+        }
+      })
+    },
+  }
+  ;(window as unknown as Record<string, unknown>).ClawTermNative = fake
+  installBridgeCallbacks()
+}
+
+function emit(type: string, payload: unknown) {
+  ;(window as unknown as Record<string, unknown>).__clawtermNativeEvent?.(type, JSON.stringify(payload))
+}
+
+/** Encode a UTF-8 string as base64, the way the host does. */
+function b64(text: string): string {
+  const bytes = new TextEncoder().encode(text)
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin)
 }
 
 beforeEach(() => {
-  FakeWS.instances = []
-  vi.stubGlobal('WebSocket', FakeWS)
-  vi.useFakeTimers()
+  _resetBridgeForTests()
+  delete (window as unknown as Record<string, unknown>).ClawTermNative
+  reply = () => ({ ok: true, result: { sessionId: 'sess-1' } })
+  vi.useRealTimers()
 })
 
-describe('TerminalSession', () => {
-  it('starts connecting and reports connected on open', () => {
-    const { s } = makeSession()
-    s.connect()
-    expect(s.state.value).toBe('connecting')
-    FakeWS.instances[0].open()
+describe('TerminalSession over the bridge', () => {
+  it('connects and records the session id', async () => {
+    install()
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const ids: string[] = []
+    const s = new TerminalSession({
+      hostId: 1, title: 't', cols: 80, rows: 24,
+      onData: () => {}, onSessionId: (id) => ids.push(id),
+    })
+    await s.connect()
     expect(s.state.value).toBe('connected')
+    expect(s.sessionId.value).toBe('sess-1')
+    expect(ids).toEqual(['sess-1'])
   })
 
-  it('records the session id from the ready frame', () => {
-    const { s, ids } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
-    FakeWS.instances[0].emit({ type: 'ready', sessionId: 'abc' })
-    expect(s.sessionId.value).toBe('abc')
-    expect(ids).toEqual(['abc'])
+  it('sends the initial geometry', async () => {
+    install()
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const s = new TerminalSession({ hostId: 1, title: 't', cols: 100, rows: 30, onData: () => {} })
+    await s.connect()
+    const connectCall = fake.calls.find((c) => c.method === 'ssh.connect')
+    expect(connectCall?.payload).toMatchObject({ hostId: 1, cols: 100, rows: 30 })
   })
 
-  // Replay arrives before any live output; both are just text to write.
-  it('forwards replay and output to onData', () => {
-    const { s, data } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
-    FakeWS.instances[0].emit({ type: 'replay', data: 'old\n' })
-    FakeWS.instances[0].emit({ type: 'output', data: 'new\n' })
-    expect(data).toEqual(['old\n', 'new\n'])
+  it('decodes base64 output to text', async () => {
+    install()
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const got: string[] = []
+    const s = new TerminalSession({ hostId: 1, title: 't', cols: 80, rows: 24, onData: (d) => got.push(d) })
+    await s.connect()
+    emit('terminal.data', { sessionId: 'sess-1', data: b64('hello\r\n') })
+    expect(got).toEqual(['hello\r\n'])
   })
 
-  it('reports the exit code and stops', () => {
-    const { s, exits } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
-    FakeWS.instances[0].emit({ type: 'exit', code: 3 })
+  // The bug this guards: a multi-byte character split across two chunks must be
+  // held, not turned into two replacement characters. `TextDecoder` with
+  // `stream: true` is what makes that work.
+  it('reassembles a multi-byte character split across chunks', async () => {
+    install()
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const got: string[] = []
+    const s = new TerminalSession({ hostId: 1, title: 't', cols: 80, rows: 24, onData: (d) => got.push(d) })
+    await s.connect()
+
+    // '中' is E4 B8 AD in UTF-8. Split after the first byte.
+    const full = new TextEncoder().encode('中')
+    const first = btoa(String.fromCharCode(full[0]))
+    const rest = btoa(String.fromCharCode(full[1], full[2]))
+
+    emit('terminal.data', { sessionId: 'sess-1', data: first })
+    emit('terminal.data', { sessionId: 'sess-1', data: rest })
+
+    const joined = got.join('')
+    expect(joined).toBe('中')
+    expect(joined).not.toContain('\uFFFD')
+  })
+
+  // Two open tabs share the event stream; a chunk addressed to one must not be
+  // written into the other's buffer.
+  it('ignores data addressed to another session', async () => {
+    install()
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const got: string[] = []
+    const s = new TerminalSession({ hostId: 1, title: 't', cols: 80, rows: 24, onData: (d) => got.push(d) })
+    await s.connect()
+    emit('terminal.data', { sessionId: 'someone-else', data: b64('nope') })
+    emit('terminal.data', { sessionId: 'sess-1', data: b64('mine') })
+    expect(got).toEqual(['mine'])
+  })
+
+  it('reports the exit code', async () => {
+    install()
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const codes: number[] = []
+    const s = new TerminalSession({
+      hostId: 1, title: 't', cols: 80, rows: 24, onData: () => {}, onExit: (c) => codes.push(c),
+    })
+    await s.connect()
+    emit('terminal.exit', { sessionId: 'sess-1', code: 3 })
     expect(s.state.value).toBe('exited')
-    expect(exits).toEqual([3])
+    expect(codes).toEqual([3])
   })
 
-  // A dropped socket is NOT a dead shell: the server keeps the PTY for a grace
-  // period, so the client must retry and re-attach to the same session id.
-  it('reconnects to the same session after a socket drop', () => {
-    const { s } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
-    FakeWS.instances[0].emit({ type: 'ready', sessionId: 'sid-1' })
-    FakeWS.instances[0].drop()
+  // A dropped connection is NOT a dead shell: the host keeps the PTY, so a
+  // retry must re-attach by session id rather than opening a new one.
+  it('re-attaches by session id when a connect fails with a transport error', async () => {
+    vi.useFakeTimers()
+    install()
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
 
-    expect(s.state.value).toBe('reconnecting')
-    vi.advanceTimersByTime(500)
-    expect(FakeWS.instances.length).toBe(2)
-    const url = new URL(FakeWS.instances[1].url)
-    expect(url.searchParams.get('session')).toBe('sid-1')
-    // A re-attach must NOT carry a host id, or the server opens a new PTY.
-    expect(url.searchParams.has('hostId')).toBe(false)
-  })
-
-  it('backs off exponentially and caps the delay', () => {
-    const { s } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
-
-    // Drop repeatedly without ever opening: each retry schedules a longer wait.
-    for (let i = 0; i < 8; i++) {
-      FakeWS.instances[FakeWS.instances.length - 1].drop()
-      // The delay after attempt n is min(400 * 2^(n-1), 8000).
-      const expected = Math.min(400 * 2 ** i, 8000)
-      const before = FakeWS.instances.length
-      vi.advanceTimersByTime(expected - 1)
-      expect(FakeWS.instances.length, `too early after attempt ${i + 1}`).toBe(before)
-      vi.advanceTimersByTime(1)
-      expect(FakeWS.instances.length, `did not retry after attempt ${i + 1}`).toBe(before + 1)
+    // First connect succeeds, so the id is known.
+    let attempts = 0
+    reply = (method) => {
+      if (method === 'ssh.connect') {
+        attempts++
+        if (attempts === 2) return { ok: false, result: 'socket died', code: 'write_failed' }
+      }
+      return { ok: true, result: { sessionId: 'sess-1' } }
     }
+
+    const s = new TerminalSession({ hostId: 1, title: 't', cols: 80, rows: 24, onData: () => {} })
+    await s.connect()
+    expect(s.sessionId.value).toBe('sess-1')
+
+    // Force a reconnect; the second attempt fails with a retryable code.
+    const reconnect = s.connect()
+    await vi.advanceTimersByTimeAsync(1)
+    await reconnect
+    expect(s.state.value).toBe('reconnecting')
+
+    // The retry must carry the session id.
+    await vi.advanceTimersByTimeAsync(600)
+    const calls = fake.calls.filter((c) => c.method === 'ssh.connect')
+    const retry = calls[calls.length - 1]
+    expect(retry.payload).toMatchObject({ sessionId: 'sess-1' })
   })
 
-  // session_gone means the PTY is gone for good; retrying would spin forever.
-  it('stops retrying when the session is gone', () => {
-    const { s } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
-    FakeWS.instances[0].emit({ type: 'error', errcode: 'session_gone', message: 'gone' })
-
-    expect(s.state.value).toBe('exited')
-    expect(s.sessionId.value).toBe('')
-    vi.advanceTimersByTime(60_000)
-    expect(FakeWS.instances.length).toBe(1)
-  })
-
-  // Every error frame is terminal: the server decided the attempt failed and is
-  // about to close the socket. Retrying would loop on the same failure.
-  it.each([
-    ['connect_failed', 'error'],
-    ['auth_failed', 'error'],
-    ['host_key_changed', 'error'],
-    ['session_limit', 'error'],
-    ['session_busy', 'error'],
-    ['shell_failed', 'error'],
-  ])('treats %s as terminal', (code, expected) => {
-    const { s } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
-    FakeWS.instances[0].emit({ type: 'error', errcode: code, message: 'nope' })
-    expect(s.state.value).toBe(expected)
-    expect(s.errorCode.value).toBe(code)
-    vi.advanceTimersByTime(60_000)
-    expect(FakeWS.instances.length).toBe(1)
-  })
-
-  it('sends input frames only while open', () => {
-    const { s } = makeSession()
-    s.connect()
-    // Not open yet: nothing must be written (the socket would throw).
-    s.send('x')
-    expect(FakeWS.instances[0].sent).toEqual([])
-
-    FakeWS.instances[0].open()
+  it('sends keystrokes with the session id', async () => {
+    install()
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const s = new TerminalSession({ hostId: 1, title: 't', cols: 80, rows: 24, onData: () => {} })
+    await s.connect()
     s.send('ls\n')
-    expect(FakeWS.instances[0].frames()).toEqual([{ type: 'input', data: 'ls\n' }])
+    const write = fake.calls.find((c) => c.method === 'ssh.write')
+    expect(write?.payload).toEqual({ sessionId: 'sess-1', data: 'ls\n' })
   })
 
-  it('ignores empty input', () => {
-    const { s } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
+  it('drops empty input', async () => {
+    install()
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const s = new TerminalSession({ hostId: 1, title: 't', cols: 80, rows: 24, onData: () => {} })
+    await s.connect()
     s.send('')
-    expect(FakeWS.instances[0].sent).toEqual([])
+    expect(fake.calls.some((c) => c.method === 'ssh.write')).toBe(false)
   })
 
-  // A resize is only sent when it CHANGES: the terminal recomputes its size on
-  // every layout pass, and a frame per pass would flood the socket.
-  it('sends a resize only when the geometry changes', () => {
-    const { s } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
-
-    s.resize(80, 24) // same as the initial size
-    expect(FakeWS.instances[0].sent).toEqual([])
-
+  // The terminal recomputes its size on every layout pass; a frame per pass
+  // would flood the bridge.
+  it('sends a resize only when the geometry changes', async () => {
+    install()
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const s = new TerminalSession({ hostId: 1, title: 't', cols: 80, rows: 24, onData: () => {} })
+    await s.connect()
+    s.resize(80, 24) // unchanged
+    expect(fake.calls.filter((c) => c.method === 'ssh.resize')).toHaveLength(0)
     s.resize(100, 30)
-    expect(FakeWS.instances[0].frames()).toEqual([{ type: 'resize', cols: 100, rows: 30 }])
-
-    s.resize(100, 30)
-    expect(FakeWS.instances[0].sent.length).toBe(1)
+    expect(fake.calls.filter((c) => c.method === 'ssh.resize')).toHaveLength(1)
   })
 
-  it('ignores a zero-size resize', () => {
-    const { s } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
-    s.resize(0, 0)
-    expect(FakeWS.instances[0].sent).toEqual([])
-  })
-
-  // detach() closes the socket WITHOUT ending the server session (tab switch);
-  // close() is permanent. Getting them confused kills the shell on a tab click.
-  it('detach closes the socket but does not retry', () => {
-    const { s } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
-    s.detach()
-    vi.advanceTimersByTime(60_000)
-    expect(FakeWS.instances.length).toBe(1)
-  })
-
-  it('close prevents any further connection', () => {
-    const { s } = makeSession()
-    s.connect()
-    FakeWS.instances[0].open()
+  it('closes the native session on close', async () => {
+    install()
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const s = new TerminalSession({ hostId: 1, title: 't', cols: 80, rows: 24, onData: () => {} })
+    await s.connect()
     s.close()
-    s.connect()
-    vi.advanceTimersByTime(60_000)
-    expect(FakeWS.instances.length).toBe(1)
+    await Promise.resolve()
+    const close = fake.calls.find((c) => c.method === 'ssh.close')
+    expect(close?.payload).toEqual({ sessionId: 'sess-1' })
   })
 
-  it('ignores unparsable frames instead of throwing', () => {
-    const { s, data } = makeSession()
-    s.connect()
-    const ws = FakeWS.instances[0]
-    ws.open()
-    // A non-JSON frame must not take the socket down.
-    ws.onmessage?.({ data: 'not json' })
-    ws.emit({ type: 'output', data: 'ok' })
-    expect(data).toEqual(['ok'])
-    expect(s.state.value).toBe('connected')
+  // session_gone means the PTY is really dead: retrying would spin forever.
+  it('stops on session_gone', async () => {
+    vi.useFakeTimers()
+    install()
+    reply = (method) => (method === 'ssh.connect'
+      ? { ok: false, result: 'gone', code: 'session_gone' }
+      : { ok: true, result: null })
+
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const s = new TerminalSession({ hostId: 1, title: 't', cols: 80, rows: 24, onData: () => {} })
+    await s.connect()
+    expect(s.state.value).toBe('exited')
+
+    const before = fake.calls.length
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(fake.calls.length).toBe(before)
   })
 
-  // A second connect() while one is in flight must not open a second socket:
-  // two sockets would mean two owners of the same PTY.
-  it('does not open a second socket while connecting', () => {
-    const { s } = makeSession()
-    s.connect()
-    s.connect()
-    expect(FakeWS.instances.length).toBe(1)
+  // A wrong password is not retryable without user action, but the tab must stay
+  // usable so "reconnect" works after they fix the host.
+  it('does not retry an auth failure', async () => {
+    vi.useFakeTimers()
+    install()
+    reply = (method) => (method === 'ssh.connect'
+      ? { ok: false, result: 'auth fail', code: 'auth_failed' }
+      : { ok: true, result: null })
+
+    const { TerminalSession } = await import('@/composables/useTerminalSession')
+    const s = new TerminalSession({ hostId: 1, title: 't', cols: 80, rows: 24, onData: () => {} })
+    await s.connect()
+    expect(s.state.value).toBe('error')
+    expect(s.errorCode.value).toBe('auth_failed')
+
+    const before = fake.calls.length
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(fake.calls.length).toBe(before)
   })
 })

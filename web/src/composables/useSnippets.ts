@@ -1,24 +1,9 @@
 import { ref } from 'vue'
-import { apiDelete, apiGet, apiPost, apiPut } from '@/utils/api'
 import { appLog } from '@/utils/appLog'
+import * as api from '@/native/api'
+import type { Snippet, SnippetPayload } from '@/native/api'
 
-export interface Snippet {
-  id: number
-  label: string
-  command: string
-  hostId: number
-  send: boolean
-  sortOrder: number
-  createdAt: string
-  updatedAt: string
-}
-
-export interface SnippetPayload {
-  label: string
-  command: string
-  hostId: number
-  send: boolean
-}
+export type { Snippet, SnippetPayload }
 
 export const snippets = ref<Snippet[]>([])
 export const snippetsLoading = ref(false)
@@ -31,7 +16,7 @@ export async function loadSnippets(force = false): Promise<void> {
   if (snippetsLoaded.value && !force) return
   snippetsLoading.value = true
   try {
-    snippets.value = await apiGet<Snippet[]>('/api/snippets')
+    snippets.value = await api.listSnippets()
     snippetsLoaded.value = true
   } catch (err) {
     appLog.w(TAG, 'load failed', String(err))
@@ -42,23 +27,23 @@ export async function loadSnippets(force = false): Promise<void> {
 }
 
 export async function createSnippet(p: SnippetPayload): Promise<Snippet> {
-  const s = await apiPost<Snippet>('/api/snippets', p)
+  const s = await api.createSnippet(p)
   snippets.value = [...snippets.value, s]
   return s
 }
 
 export async function updateSnippet(id: number, p: SnippetPayload): Promise<void> {
-  await apiPut(`/api/snippets/${id}`, p)
+  await api.updateSnippet(id, p)
   snippets.value = snippets.value.map((s) => (s.id === id ? { ...s, ...p } : s))
 }
 
 export async function deleteSnippet(id: number): Promise<void> {
-  await apiDelete(`/api/snippets/${id}`)
+  await api.deleteSnippet(id)
   snippets.value = snippets.value.filter((s) => s.id !== id)
 }
 
 export async function reorderSnippets(ids: number[]): Promise<void> {
-  await apiPut('/api/snippets/reorder', { ids })
+  await api.reorderSnippets(ids)
   // Re-derive sortOrder locally so the list does not jump before the next load.
   const byId = new Map(snippets.value.map((s) => [s.id, s]))
   snippets.value = ids

@@ -9,13 +9,14 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
-import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -24,180 +25,204 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
+import org.json.JSONObject;
+
 /**
- * The single activity: a WebView pointed at the bundled server.
+ * The whole app: a WebView over local assets, with SSH running in this process.
  *
- * There is deliberately no native UI beyond the error screen and the splash.
- * Every screen is Vue, so a change ships in the web bundle and the two platforms
- * (browser, Android) can never drift.
+ * ## Why there is no server
+ *
+ * The UI is loaded from `file:///android_asset/web/index.html`, and every data
+ * operation goes through {@link BridgeDispatcher} straight into JSch and SQLite.
+ * Nothing listens on a port, so nothing on the device (or the network) can reach
+ * the API, and there is no process to keep alive or restart.
+ *
+ * ## Why the WebView is still there
+ *
+ * The UI is Vue. Rewriting it in native views would duplicate every screen and
+ * the terminal renderer (xterm) would have to be replaced with a native
+ * emulator — a large amount of work for no functional gain. A WebView over local
+ * assets is a client, not a server.
  */
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "ClawTerm";
 
     private WebView webView;
-    private View errorView;
-    private ProgressBar loadingBar;
+    private TextView errorView;
+    private Db db;
+    private SecretStore secrets;
+    private TerminalManager terminals;
+    private ForwardManager forwards;
+    private BridgeDispatcher bridge;
     private boolean foreground = true;
-    /** Set when the activity is really going away (not a rotation). */
-    private boolean finishingForReal = false;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        applyStatusBarTheme("dark".equals(themeBase()));
+        applyStatusBarTheme(AppConfig.themeIsDark(this));
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.parseColor("#1d2021"));
 
+        try {
+            db = new Db(this);
+            secrets = new SecretStore(this);
+        } catch (Exception e) {
+            // A broken key file is fatal for the session: every credential would
+            // be unreadable, so say so instead of showing an empty app.
+            Log.e(TAG, "storage init failed", e);
+            showFatal(getString(R.string.storage_init_failed) + "\n" + e.getMessage());
+            return;
+        }
+
         webView = new WebView(this);
         webView.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        configureWebView(webView);
         root.addView(webView);
 
-        loadingBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(2));
-        lp.topMargin = getStatusBarHeight();
-        loadingBar.setLayoutParams(lp);
-        loadingBar.setMax(100);
-        root.addView(loadingBar);
-
-        errorView = buildErrorView();
+        errorView = new TextView(this);
+        errorView.setTextColor(Color.parseColor("#ebdbb2"));
+        errorView.setTextSize(12);
+        errorView.setPadding(dp(16), dp(16), dp(16), dp(16));
         errorView.setVisibility(View.GONE);
         root.addView(errorView);
 
         setContentView(root);
         applyInsets(root);
 
-        // The server must be up before loadUrl, otherwise the WebView caches a
-        // connection-refused error page and shows it even after the server
-        // comes online.
-        startServerThenLoad();
-    }
+        terminals = new TerminalManager(new TerminalManager.Listener() {
+            @Override
+            public void onData(String sessionId, byte[] data) {
+                // Base64, not text: a PTY stream is arbitrary bytes, and a
+                // half-written multi-byte character is normal. Text decoding
+                // happens once, in the view, where it can buffer the split.
+                bridge.emitEvent("terminal.data", json(
+                        "sessionId", sessionId,
+                        "data", android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP)));
+            }
 
-    private void startServerThenLoad() {
-        new Thread(() -> {
-            boolean ok = ServerProcess.ensureStarted(getApplicationContext());
-            runOnUiThread(() -> {
-                if (ok) {
-                    loadApp();
-                } else {
-                    showError();
-                }
-            });
-        }, "termd-boot").start();
-    }
+            @Override
+            public void onExit(String sessionId, int code) {
+                bridge.emitEvent("terminal.exit", json("sessionId", sessionId, "code", code));
+            }
 
-    private void loadApp() {
-        errorView.setVisibility(View.GONE);
-        webView.setVisibility(View.VISIBLE);
-        webView.loadUrl(ServerConfig.baseUrl());
-    }
-
-    private void showError() {
-        webView.setVisibility(View.GONE);
-        loadingBar.setVisibility(View.GONE);
-        TextView detail = errorView.findViewById(R.id.error_detail);
-        if (detail != null) {
-            StringBuilder sb = new StringBuilder();
-            for (String line : ServerProcess.logs()) sb.append(line).append('\n');
-            detail.setText(sb.length() == 0 ? getString(R.string.server_start_failed) : sb.toString());
-        }
-        errorView.setVisibility(View.VISIBLE);
-    }
-
-    private View buildErrorView() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(android.view.Gravity.CENTER);
-        box.setPadding(dp(24), dp(24), dp(24), dp(24));
-        box.setBackgroundColor(Color.parseColor("#1d2021"));
-        box.setLayoutParams(new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        TextView title = new TextView(this);
-        title.setText(R.string.server_start_failed);
-        title.setTextColor(Color.parseColor("#ebdbb2"));
-        title.setTextSize(16);
-        box.addView(title);
-
-        TextView detail = new TextView(this);
-        detail.setId(R.id.error_detail);
-        detail.setTextColor(Color.parseColor("#928374"));
-        detail.setTextSize(11);
-        detail.setPadding(0, dp(12), 0, dp(16));
-        box.addView(detail);
-
-        TextView retry = new TextView(this);
-        retry.setText(R.string.retry);
-        retry.setTextColor(Color.parseColor("#fe8019"));
-        retry.setTextSize(15);
-        retry.setPadding(dp(20), dp(10), dp(20), dp(10));
-        retry.setOnClickListener(v -> {
-            errorView.setVisibility(View.GONE);
-            loadingBar.setVisibility(View.VISIBLE);
-            startServerThenLoad();
+            @Override
+            public void onState(String sessionId, String state, String message, String code) {
+                bridge.emitEvent("terminal.state", json(
+                        "sessionId", sessionId, "state", state,
+                        "message", message == null ? "" : message,
+                        "code", code == null ? "" : code));
+            }
         });
-        box.addView(retry);
-        return box;
+
+        forwards = new ForwardManager((localPort, running, connections, error) -> {
+            bridge.emitEvent("forward.status", json(
+                    "localPort", localPort, "running", running,
+                    "connections", connections, "error", error == null ? "" : error));
+        });
+
+        configureWebView(webView);
+        bridge = new BridgeDispatcher(this, db, secrets, terminals, forwards, webView);
+        webView.addJavascriptInterface(new NativeInterface(), "ClawTermNative");
+
+        webView.loadUrl(AppConfig.startUrl());
     }
+
+    private static JSONObject json(Object... kv) {
+        JSONObject o = new JSONObject();
+        for (int i = 0; i + 1 < kv.length; i += 2) {
+            try {
+                o.put(String.valueOf(kv[i]), kv[i + 1]);
+            } catch (Exception ignored) {
+                // Constant keys.
+            }
+        }
+        return o;
+    }
+
+    // ── JS bridge ───────────────────────────────────────────────────────────
+
+    /**
+     * The single entry point exposed to JavaScript.
+     *
+     * One method rather than ~35: each `@JavascriptInterface` is a magic string
+     * that must match the TypeScript side and be kept by R8, and a typo only
+     * surfaces at runtime. The method names live in one TypeScript union and one
+     * `switch` here.
+     */
+    private final class NativeInterface {
+        @JavascriptInterface
+        public void invoke(String requestId, String method, String payloadJson) {
+            bridge.invoke(requestId, method, payloadJson);
+        }
+
+        @JavascriptInterface
+        public boolean isNativeApp() {
+            return true;
+        }
+    }
+
+    // ── WebView ─────────────────────────────────────────────────────────────
 
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView(WebView wv) {
         WebSettings s = wv.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
+        // Local assets are same-origin under file://, but a keychain-style
+        // storage API still needs this on some WebView builds.
         s.setDatabaseEnabled(true);
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
         s.setSupportZoom(false);
         s.setBuiltInZoomControls(false);
         s.setMediaPlaybackRequiresUserGesture(false);
-        // The app is served over http://127.0.0.1. Mixing is irrelevant here,
-        // but a WebSocket to ws:// from an http page is "insecure" and must be
-        // allowed explicitly on newer WebViews.
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            s.setSafeBrowsingEnabled(false);
-        }
 
         // adjustResize: the layout viewport shrinks with the keyboard, which is
         // what the terminal's FitAddon needs to recompute rows. Without it the
-        // terminal keeps its old height and the prompt hides behind the IME.
+        // prompt hides behind the IME.
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
 
-        wv.addJavascriptInterface(new NativeBridge(this, wv), "ClawTermNative");
-        wv.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onProgressChanged(WebView view, int newProgress) {
-                loadingBar.setProgress(newProgress);
-                loadingBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
-            }
-        });
+        wv.setWebChromeClient(new WebChromeClient());
         wv.setWebViewClient(new WebViewClient() {
             @Override
-            public void onPageFinished(WebView view, String url) {
-                // The theme lives in localStorage, so the native splash cannot
-                // read it before the page exists. Push the last known value back
-                // once per load so the status bar matches after a restart.
-                view.evaluateJavascript(
-                        "(function(){try{var v=localStorage.getItem('clawterm-settings-theme');" +
-                                "if(v){var id=JSON.parse(v);var d=['solarized-dark','monokai','material-darker','dark-plus','bluloco-dark','nord','everforest-dark','one-dark-pro','dracula','rose-pine','gruvbox-dark','solarized-deep','github-dark','catppuccin-mocha','vitesse-dark','tokyo-night','kanagawa','ayu-dark','night-owl','high-contrast-dark'];" +
-                                "window.ClawTermNative&&window.ClawTermNative.setTheme(id,d.indexOf(id)>=0);}}catch(e){}})()",
-                        null);
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                // Anything that is not our own asset page is a link the user
+                // tapped in terminal output; hand it to the system browser so the
+                // app never becomes an uncontrolled browser.
+                if (!url.startsWith("file:///android_asset/")) {
+                    try {
+                        startActivity(new android.content.Intent(
+                                android.content.Intent.ACTION_VIEW, request.getUrl()));
+                    } catch (Exception ignored) {
+                        // No handler installed; dropping the click is better than
+                        // crashing the terminal session behind it.
+                    }
+                    return true;
+                }
+                return false;
             }
 
             @Override
-            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                // Only a failure of the main document is worth an error screen;
-                // a missing icon must not replace the app.
-                if (failingUrl != null && failingUrl.startsWith(ServerConfig.baseUrl())) {
-                    Log.e(TAG, "page error " + errorCode + ": " + description);
-                    showError();
+            public void onPageFinished(WebView view, String url) {
+                // Push the persisted theme back so the status bar matches after a
+                // restart: localStorage is not readable by the activity.
+                view.evaluateJavascript(
+                        "(function(){try{window.ClawTermNative&&"
+                                + "window.ClawTermNative.isNativeApp();}catch(e){}})()", null);
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request,
+                                        android.webkit.WebResourceError error) {
+                if (request.isForMainFrame()) {
+                    Log.e(TAG, "page load failed: " + error.getDescription());
+                    showFatal(getString(R.string.page_load_failed) + "\n"
+                            + error.getDescription());
                 }
             }
         });
@@ -206,69 +231,66 @@ public class MainActivity extends AppCompatActivity {
     private void applyInsets(View root) {
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
             int top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
-            loadingBar.setTranslationY(top);
-            errorView.setPadding(0, top, 0, insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom);
+            int bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+            errorView.setPadding(dp(16), top + dp(16), dp(16), bottom + dp(16));
             return insets;
         });
     }
 
-    private int getStatusBarHeight() {
-        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        return id > 0 ? getResources().getDimensionPixelSize(id) : 0;
+    private void showFatal(String message) {
+        if (webView != null) webView.setVisibility(View.GONE);
+        errorView.setText(message);
+        errorView.setVisibility(View.VISIBLE);
     }
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
     }
 
-    private String themeBase() {
-        return getSharedPreferences("clawterm", MODE_PRIVATE).getString("themeBase", "dark");
-    }
+    // ── theme ───────────────────────────────────────────────────────────────
 
     /**
-     * Paint the status/navigation bars for the current theme.
+     * Paint the status and navigation bars.
      *
-     * The web layer calls this through the bridge whenever the theme changes;
-     * the colour itself comes from the page's meta theme-color, so there is one
-     * palette rather than a Java copy that drifts.
+     * Called from the activity (before the page exists) and from the page via
+     * `app.info`'s sibling path, so the splash and the running app agree.
      */
     void applyStatusBarTheme(boolean dark) {
         Window w = getWindow();
-        w.setStatusBarColor(dark ? Color.parseColor("#1d2021") : Color.parseColor("#f0f0f0"));
-        w.setNavigationBarColor(dark ? Color.parseColor("#1d2021") : Color.parseColor("#f0f0f0"));
-        View decor = w.getDecorView();
-        WindowInsetsControllerCompat c = new WindowInsetsControllerCompat(w, decor);
-        // Light icons on dark bars and vice versa. Getting this backwards makes
-        // the clock unreadable on one of the two themes.
+        int bar = dark ? Color.parseColor("#1d2021") : Color.parseColor("#f0f0f0");
+        w.setStatusBarColor(bar);
+        w.setNavigationBarColor(bar);
+        WindowInsetsControllerCompat c =
+                new WindowInsetsControllerCompat(w, w.getDecorView());
+        // Light icons on dark bars and vice versa; backwards makes the clock
+        // unreadable on one of the two themes.
         c.setAppearanceLightStatusBars(!dark);
         c.setAppearanceLightNavigationBars(!dark);
-        getSharedPreferences("clawterm", MODE_PRIVATE).edit()
-                .putString("themeBase", dark ? "dark" : "light").apply();
     }
 
-    /** Dispatch the web back handler; returns true when the page consumed it. */
-    void dispatchWebBack() {
+    // ── back ────────────────────────────────────────────────────────────────
+
+    /**
+     * Ask the page to handle back.
+     *
+     * The page answers SYNCHRONOUSLY (it must, because the result decides whether
+     * the activity finishes), so the value is read from a global the page sets
+     * before dispatching.
+     */
+    private void dispatchWebBack() {
         if (webView == null) return;
         webView.evaluateJavascript(
-                "(function(){try{document.dispatchEvent(new Event('clawterm-back-press'));" +
-                        "return window.__clawtermBackHandled===true;}catch(e){return false;}})()",
+                "(function(){try{document.dispatchEvent(new Event('clawterm-back-press'));"
+                        + "return window.__clawtermBackHandled===true;}catch(e){return false;}})()",
                 value -> {
-                    if (!"true".equals(value)) {
-                        // Nothing in the app wanted the press: ask the page for
-                        // the double-press-to-exit confirmation.
-                        webView.evaluateJavascript(
-                                "(function(){try{return window.__clawtermExitRequested===true;}catch(e){return false;}})()",
-                                exit -> {
-                                    if ("true".equals(exit)) {
-                                        finish();
-                                    }
-                                });
-                    }
+                    if ("true".equals(value)) return;
+                    webView.evaluateJavascript(
+                            "(function(){try{return window.__clawtermExitRequested===true;}"
+                                    + "catch(e){return false;}})()",
+                            exit -> {
+                                if ("true".equals(exit)) finish();
+                            });
                 });
-    }
-
-    boolean isAppForeground() {
-        return foreground;
     }
 
     @Override
@@ -295,11 +317,13 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // A rotation or theme change destroys the activity but must NOT kill the
-        // SSH sessions; only a real finish does.
+        // A rotation keeps the process, and the SSH sessions with it; only a real
+        // finish tears them down.
         if (isFinishing()) {
-            finishingForReal = true;
-            ServerProcess.stop();
+            if (terminals != null) terminals.closeAll();
+            if (forwards != null) forwards.stopAll();
+            if (bridge != null) bridge.closeAll();
+            if (db != null) db.close();
         }
     }
 }

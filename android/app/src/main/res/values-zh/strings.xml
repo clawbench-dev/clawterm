@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ClawTerm</string>
-    <string name="server_start_failed">内置服务未能启动</string>
-    <string name="retry">重试</string>
+    <string name="storage_init_failed">无法打开应用存储</string>
+    <string name="page_load_failed">应用页面加载失败</string>
 </resources>

@@ -2,6 +2,10 @@
   <ModalDialog :open="open" :title="t('settings.changePassword')" @close="emit('close')">
     <form class="form" @submit.prevent="save">
       <div class="form-row">
+        <label class="form-label">{{ t('settings.currentPassword') }}</label>
+        <input v-model="oldPassword" class="form-input" type="password" autocomplete="current-password" data-field="old-password" />
+      </div>
+      <div class="form-row">
         <label class="form-label">{{ t('settings.newPassword') }}</label>
         <input v-model="password" class="form-input" type="password" autocomplete="new-password" data-field="new-password" />
       </div>
@@ -29,8 +33,9 @@ import { showToast } from '@/composables/useUi'
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 const { t } = useI18n()
-const { login } = useAuth()
+const { changePassword } = useAuth()
 
+const oldPassword = ref('')
 const password = ref('')
 const confirm = ref('')
 const error = ref('')
@@ -38,6 +43,7 @@ const saving = ref(false)
 
 watch(() => props.open, (v) => {
   if (v) {
+    oldPassword.value = ''
     password.value = ''
     confirm.value = ''
     error.value = ''
@@ -54,11 +60,15 @@ async function save() {
     error.value = t('login.mismatch')
     return
   }
+  if (!oldPassword.value) {
+    error.value = t('settings.currentPasswordRequired')
+    return
+  }
   saving.value = true
   try {
-    // `set: true` is the change-password form of the login endpoint; the server
-    // requires an authenticated session for it.
-    await login(password.value, true)
+    // Changing the password requires the CURRENT one: without it, anyone who
+    // picks up an unlocked phone could lock the owner out.
+    await changePassword(oldPassword.value, password.value)
     showToast(t('settings.passwordChanged'), 'success')
     emit('close')
   } catch (err) {

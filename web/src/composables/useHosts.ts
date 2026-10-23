@@ -1,42 +1,16 @@
 import { ref, computed } from 'vue'
-import { apiDelete, apiGet, apiPost, apiPut } from '@/utils/api'
 import { appLog } from '@/utils/appLog'
+import * as api from '@/native/api'
+import type { Host, HostPayload } from '@/native/api'
 
-export interface Host {
-  id: number
-  name: string
-  address: string
-  port: number
-  username: string
-  authType: 'password' | 'key' | 'agent'
-  keyPath: string
-  hasPassword: boolean
-  hasPassphrase: boolean
-  color: string
-  group: string
-  lastUsedAt: number
-  createdAt: string
-  updatedAt: string
-}
-
-export interface HostPayload {
-  name: string
-  address: string
-  port: number
-  username: string
-  authType: 'password' | 'key' | 'agent'
-  keyPath: string
-  password: string
-  passphrase: string
-  color: string
-  group: string
-}
+export type { Host, HostPayload }
 
 /**
- * Host list state. Module-level singletons: the host list is read by the hosts
- * panel, the file browser's host picker and the snippet scope selector, and
- * three independent copies would drift (one deleting a host while another still
- * shows it).
+ * Host list state.
+ *
+ * Module-level singletons: the list is read by the hosts panel, the file
+ * browser's host picker and the snippet scope selector, and three independent
+ * copies would drift (one deleting a host while another still shows it).
  */
 export const hosts = ref<Host[]>([])
 export const hostsLoading = ref(false)
@@ -50,7 +24,7 @@ export async function loadHosts(force = false): Promise<void> {
   if (hostsLoaded.value && !force) return
   hostsLoading.value = true
   try {
-    hosts.value = await apiGet<Host[]>('/api/hosts')
+    hosts.value = await api.listHosts()
     hostsLoaded.value = true
   } catch (err) {
     appLog.w(TAG, 'load failed', String(err))
@@ -61,37 +35,24 @@ export async function loadHosts(force = false): Promise<void> {
 }
 
 export async function createHost(p: HostPayload): Promise<Host> {
-  const h = await apiPost<Host>('/api/hosts', p)
+  const h = await api.createHost(p)
   hosts.value = [...hosts.value, h]
   return h
 }
 
 export async function updateHost(id: number, p: HostPayload): Promise<Host> {
-  const h = await apiPut<Host>(`/api/hosts/${id}`, p)
+  const h = await api.updateHost(id, p)
   hosts.value = hosts.value.map((x) => (x.id === id ? h : x))
   return h
 }
 
 export async function deleteHost(id: number): Promise<void> {
-  await apiDelete(`/api/hosts/${id}`)
+  await api.deleteHost(id)
   hosts.value = hosts.value.filter((x) => x.id !== id)
 }
 
-export interface HostTestResult {
-  ok: boolean
-  latency: number
-  notice: string
-  addr: string
-}
-
-export function testHost(id: number): Promise<HostTestResult> {
-  return apiPost<HostTestResult>(`/api/hosts/${id}/test`)
-}
-
-/** Accept a changed host key (unpins it so the next dial re-pins). */
-export function acceptHostKey(id: number): Promise<void> {
-  return apiPost<void>(`/api/hosts/${id}/forget-key`)
-}
+export const testHost = api.testHost
+export const acceptHostKey = api.acceptHostKey
 
 export function hostById(id: number): Host | undefined {
   return hosts.value.find((h) => h.id === id)

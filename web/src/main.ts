@@ -4,17 +4,16 @@ import i18n from './i18n'
 import './assets/modal-card.css'
 import './assets/modal-footer-btn.css'
 import { appLog } from './utils/appLog'
-import { setUnauthorizedHandler } from './utils/api'
-import { handleUnauthorized, refreshAuth, useAuth } from './composables/useAuth'
+import { available, installBridgeCallbacks } from './native/bridge'
+import { refreshAuth, useAuth } from './composables/useAuth'
 import { installUiWatchers } from './composables/useUi'
 import LoginView from './components/LoginView.vue'
 import ToastHost from './components/common/ToastHost.vue'
 import ConfirmHost from './components/common/ConfirmHost.vue'
 
-// A 401 anywhere means the session cookie expired (or the password was changed
-// on another device). Flip the app back to the login screen instead of letting
-// every panel show its own "not authenticated" error.
-setUnauthorizedHandler(handleUnauthorized)
+// The host calls back into the page by name; install those entry points before
+// anything can call the bridge, or a fast reply would land nowhere.
+installBridgeCallbacks()
 
 installUiWatchers()
 
@@ -53,6 +52,12 @@ document.body.appendChild(overlays)
 createApp({
   render: () => [h(ToastHost), h(ConfirmHost)],
 }).use(i18n).mount(overlays)
+
+if (!available()) {
+  // A plain browser has no SSH client, so there is nothing this build can do.
+  // Saying so beats rendering an app whose every action fails.
+  appLog.e('Boot', 'native bridge missing — this build must run in the app shell')
+}
 
 void refreshAuth().then(() => {
   appLog.i('Boot', 'auth status resolved')

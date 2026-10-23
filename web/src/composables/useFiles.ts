@@ -1,35 +1,16 @@
 import { ref } from 'vue'
-import { apiGet } from '@/utils/api'
 import { appLog } from '@/utils/appLog'
+import * as api from '@/native/api'
+import type { DirListing } from '@/native/api'
 
-export interface FileEntry {
-  name: string
-  path: string
-  isDir: boolean
-  isLink: boolean
-  size: number
-  mode: string
-  modTime: number
-}
-
-export interface DirListing {
-  path: string
-  entries: FileEntry[]
-}
-
-export interface FileContent {
-  path: string
-  size: number
-  truncated: boolean
-  content: string
-}
+export type { FileEntry, DirListing, FileContent } from '@/native/api'
 
 const TAG = 'Files'
 
 /** Per-host directory cache, keyed by "hostId:path". */
 const cache = new Map<string, DirListing>()
-const loading = ref(false)
-const error = ref('')
+export const loading = ref(false)
+export const error = ref('')
 
 /** Last browsed path per host, so switching back returns where you were. */
 const lastPath = new Map<number, string>()
@@ -43,7 +24,7 @@ export async function listDir(hostId: number, path: string, force = false): Prom
   loading.value = true
   error.value = ''
   try {
-    const res = await apiGet<DirListing>(`/api/files?hostId=${hostId}&path=${encodeURIComponent(path)}`)
+    const res = await api.listDir(hostId, path)
     cache.set(key, res)
     lastPath.set(hostId, res.path)
     return res
@@ -56,13 +37,8 @@ export async function listDir(hostId: number, path: string, force = false): Prom
   }
 }
 
-export async function readFile(hostId: number, path: string): Promise<FileContent> {
-  return apiGet<FileContent>(`/api/files/content?hostId=${hostId}&path=${encodeURIComponent(path)}`)
-}
-
-export function downloadUrl(hostId: number, path: string): string {
-  return `/api/files/download?hostId=${hostId}&path=${encodeURIComponent(path)}`
-}
+export const readFile = api.readFile
+export const downloadFile = api.downloadFile
 
 export function rememberedPath(hostId: number): string {
   return lastPath.get(hostId) ?? '.'

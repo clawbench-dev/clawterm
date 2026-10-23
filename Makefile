@@ -1,25 +1,18 @@
 # Thin wrapper over build.sh so `make` does the obvious thing.
-.PHONY: build android release test lint dev clean
+.PHONY: apk release test typecheck clean
 
-build:
+apk:
 	./build.sh
 
-android:
-	./build.sh --android
-
 release:
-	./build.sh --android --release
+	./build.sh --release
 
 test:
-	go test ./...
 	npx vitest run
+	cd android && ./gradlew testDebugUnitTest
 
-lint:
-	go vet ./...
+typecheck:
 	npx vue-tsc --noEmit -p web/tsconfig.json
 
-dev:
-	npm run dev
-
 clean:
-	rm -rf .clawterm-web internal/frontend/dist android/app/build android/build
+	rm -rf .clawterm-web android/app/src/main/assets/web android/app/build android/build

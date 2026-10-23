@@ -107,7 +107,7 @@ import LoadingIndicator from '@/components/common/LoadingIndicator.vue'
 import PopupMenu from '@/components/common/PopupMenu.vue'
 import FilePreviewSheet from './FilePreviewSheet.vue'
 import { hosts, loadHosts } from '@/composables/useHosts'
-import { downloadUrl, formatSize, formatTime, listDir, rememberedPath, type FileEntry } from '@/composables/useFiles'
+import { downloadFile, formatSize, formatTime, listDir, rememberedPath, type FileEntry } from '@/composables/useFiles'
 import { showToast } from '@/composables/useUi'
 import { activeTab as activeTerminalTab, openTab, selectTab, sendInput, tabs } from '@/composables/useTerminalTabs'
 import { switchTab } from '@/composables/useNavigation'
@@ -240,18 +240,17 @@ async function menuCopyPath() {
   }
 }
 
-function menuDownload() {
+async function menuDownload() {
   const e = menuEntry.value
   if (!e || e.isDir) return
-  const url = downloadUrl(hostId.value, e.path)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = e.name
-  a.rel = 'noopener'
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  showToast(t('files.downloading'), 'info')
+  showToast(t('files.downloading'), 'loading', 0)
+  try {
+    const res = await downloadFile(hostId.value, e.path)
+    showToast(res.saved ? t('files.downloadDone') : t('files.downloadCancelled'),
+      res.saved ? 'success' : 'info')
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : String(err), 'error', 5000)
+  }
 }
 
 /**

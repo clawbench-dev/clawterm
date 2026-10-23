@@ -245,7 +245,7 @@ import {
 } from '@/composables/useTerminalTabs'
 import { hosts } from '@/composables/useHosts'
 import { settings, setSetting, effectiveTheme, effectiveThemeRef } from '@/composables/useSettings'
-import { KEY_SEQUENCES } from '@/utils/terminalProtocol'
+import { KEY_SEQUENCES } from '@/utils/keys'
 import { LONG_PRESS_MS, useModifiers } from '@/composables/useModifiers'
 import { selectionCellsToSelect, useTerminalGestures } from '@/composables/useTerminalGestures'
 import { buildXtermTheme, mixHex, terminalFontStack } from '@/utils/terminalTheme'

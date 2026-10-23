@@ -51,7 +51,8 @@ import { useI18n } from 'vue-i18n'
 import { Download as DownloadIcon, File as FileIcon } from 'lucide-vue-next'
 import BottomSheet from '@/components/common/BottomSheet.vue'
 import LoadingIndicator from '@/components/common/LoadingIndicator.vue'
-import { downloadUrl, formatSize, looksTextual, readFile, type FileContent } from '@/composables/useFiles'
+import { downloadFile, formatSize, looksTextual, readFile, type FileContent } from '@/composables/useFiles'
+import { showToast } from '@/composables/useUi'
 
 const props = defineProps<{ open: boolean; hostId: number; path: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -96,14 +97,20 @@ watch(() => [props.open, props.path, props.hostId], () => {
   if (props.open) void load()
 }, { immediate: true })
 
-function download() {
-  const a = document.createElement('a')
-  a.href = downloadUrl(props.hostId, props.path)
-  a.download = baseName.value
-  a.rel = 'noopener'
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
+/**
+ * Save the file to the device.
+ *
+ * Native shows the system save dialog: the WebView has no writable filesystem
+ * of its own, and a blob download would land in a cache the user cannot find.
+ */
+async function download() {
+  try {
+    const res = await downloadFile(props.hostId, props.path)
+    showToast(res.saved ? t('files.downloadDone') : t('files.downloadCancelled'),
+      res.saved ? 'success' : 'info')
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : String(err), 'error', 5000)
+  }
 }
 </script>
 

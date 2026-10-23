@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ClawTerm</string>
-    <string name="server_start_failed">The bundled server did not start</string>
-    <string name="retry">Retry</string>
+    <string name="storage_init_failed">Cannot open app storage</string>
+    <string name="page_load_failed">The app page failed to load</string>
 </resources>

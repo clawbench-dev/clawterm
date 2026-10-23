@@ -89,9 +89,9 @@ async function submit() {
 
   busy.value = true
   try {
-    // `set` is the CHANGE-password flag; first-run setup is recognised by the
-    // server's needsSetup state, so it must be false here.
-    await login(password.value, false)
+    // The native side knows whether this is first-run setup or an unlock, so
+    // there is no mode flag to pass.
+    await login(password.value)
     password.value = ''
     confirmPassword.value = ''
     emit('success')

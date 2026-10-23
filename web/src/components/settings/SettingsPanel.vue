@@ -175,10 +175,10 @@ import { themeMeta } from '@/utils/themeMeta'
 import { confirmDialog, showToast } from '@/composables/useUi'
 import { useAuth } from '@/composables/useAuth'
 import { tabCount } from '@/composables/useTerminalTabs'
-import { apiGet } from '@/utils/api'
+import { appInfo } from '@/native/api'
 
 const { t } = useI18n()
-const { logout, status } = useAuth()
+const { logout } = useAuth()
 
 const themeOpen = ref(false)
 const paletteOpen = ref(false)
@@ -208,13 +208,9 @@ const themeLabel = computed(() => {
 })
 
 onMounted(async () => {
-  if (status.value?.version) {
-    version.value = status.value.version
-    return
-  }
   try {
-    const sys = await apiGet<{ version: string }>('/api/system')
-    version.value = sys.version
+    const info = await appInfo()
+    version.value = info.version
   } catch {
     version.value = '—'
   }

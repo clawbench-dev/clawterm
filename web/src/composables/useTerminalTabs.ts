@@ -178,14 +178,10 @@ export function closeTab(id: string) {
   pendingOutput.delete(id)
 
   tabs.value = tabs.value.filter((t) => t.id !== id)
-  if (tab.sessionId) {
-    // End the server-side PTY too, otherwise it lingers until the grace period
-    // expires and the tab count on the server drifts from the UI.
-    void fetch(`/api/terminal/sessions?session=${encodeURIComponent(tab.sessionId)}`, {
-      method: 'DELETE',
-      credentials: 'same-origin',
-    }).catch(() => { /* best effort: the reaper collects it */ })
-  }
+  // `sessions.get(id).close()` above already asked native to end the channel,
+  // which also drops the SSH connection reference it held. Nothing else to do:
+  // there is no server-side registry to clean up.
+  void tab
   if (activeTabId.value === id) {
     const next = tabs.value[Math.min(idx, tabs.value.length - 1)]
     if (next) selectTab(next.id)

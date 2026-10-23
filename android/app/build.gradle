@@ -5,13 +5,11 @@ plugins {
 /**
  * versionName / versionCode.
  *
- * Deliberately independent of git tags: this project ships as an APK the user
- * installs directly, so the version has to move on every build or Android
- * refuses the upgrade ("app not installed"). Passing -PversionName /
- * -PversionCode overrides both.
+ * Deliberately independent of git tags: this ships as an APK the user installs
+ * directly, so the version must move on every build or Android refuses the
+ * upgrade ("app not installed").
  *
- * versionCode = major*10000 + minor*100 + patch (monotonic, no distance term:
- * there is no release pipeline to derive one from).
+ * versionCode = major*10000 + minor*100 + patch (monotonic).
  */
 def versionNameValue = project.hasProperty('versionName') ? project.property('versionName') : '1.0.0'
 def versionCodeValue = project.hasProperty('versionCode')
@@ -32,18 +30,13 @@ android {
         targetSdk 34
         versionCode versionCodeValue
         versionName versionNameValue
-        ndk {
-            // Only arm64: the bundled Go server is arm64-only, and shipping a
-            // second ABI would double the APK for no benefit.
-            abiFilters 'arm64-v8a'
-        }
     }
 
     signingConfigs {
         release {
-            // A debug-style keystore is checked in so a locally built APK can be
-            // installed and upgraded without the user generating keys. CI can
-            // override all four via environment variables.
+            // A checked-in keystore so a locally built APK can be installed and
+            // upgraded without the user generating keys. CI can override all
+            // four values via environment variables.
             def ks = System.getenv("KEYSTORE_FILE")
             storeFile ks ? file(ks) : file('clawterm.jks')
             storePassword System.getenv("KEYSTORE_PASSWORD") ?: 'clawterm123'
@@ -79,17 +72,6 @@ android {
         targetCompatibility JavaVersion.VERSION_11
     }
 
-    // The bundled server is a PIE EXECUTABLE shipped as libtermd.so, and it must
-    // be a real file on disk to be exec'd. By default AGP 8+ packages native
-    // libs uncompressed with extractNativeLibs=false, which leaves them inside
-    // the APK and makes nativeLibraryDir/libtermd.so a path that does not exist
-    // — the app then fails at startup with "server binary missing".
-    packagingOptions {
-        jniLibs {
-            useLegacyPackaging = true
-        }
-    }
-
     testOptions {
         unitTests {
             includeAndroidResources = true
@@ -103,6 +85,8 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core-splashscreen:1.0.1'
     implementation 'com.google.android.material:material:1.11.0'
+    // Pure-Java SSH client: no NDK, no native library, no separate process.
+    implementation 'com.github.mwiede:jsch:0.2.16'
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.11.1'

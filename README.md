@@ -1,134 +1,176 @@
 # ClawTerm
 
-An SSH / SFTP terminal manager: multi-tab terminals, a remote file browser and
-port forwarding, packaged as a web app **and** an Android app.
-
-The Android build is a shell around the same Vue app the browser gets, and the
-Go server that does the SSH work ships inside the APK — so the phone version and
-the desktop version are the same code, not two implementations that drift.
+An SSH / SFTP terminal manager for Android — **a pure client**. The SSH client,
+the database and the credential store all live inside the app process. Nothing
+listens on a port, nothing runs in the background, and there is no companion
+service to install.
 
 ![Hosts](docs/screenshots/hosts.png)
+
+## Why there is no server
+
+An earlier version of this project shipped a Go server inside the APK and had the
+WebView talk to `127.0.0.1`. That is still a client-server design: a process
+opening a socket, a protocol to keep compatible, a lifecycle to manage, and a
+port that other apps on the device could reach.
+
+This version removes all of it:
+
+| | Before | Now |
+|---|---|---|
+| SSH | Go process over a local socket | JSch, in the app process |
+| UI | served by the Go process | loaded from `assets/web/` |
+| Data | Go + SQLite over HTTP | SQLite directly, in-process |
+| Credentials | Go + AES-GCM | Java `AES/GCM/NoPadding` |
+| Open ports | 1 (loopback HTTP + WebSocket) | **0** |
+| Processes | 2 | 1 |
+
+The UI is still Vue in a WebView — that is a rendering choice, not a server. It
+talks to the Java layer through one JavaScript bridge method.
 
 ## What it does
 
 | | |
 |---|---|
-| **Multi-tab terminal** | One SSH shell per tab, kept alive across reconnects. Switch tabs without losing scrollback, the cursor position in a TUI, or the running process. |
-| **Reconnect to the same shell** | A phone that sleeps, a Wi-Fi change, a server that hiccups — the client re-attaches to the same PTY and replays the scrollback. |
+| **Multi-tab terminal** | One PTY-backed SSH channel per tab. Switching tabs keeps scrollback, the cursor position in a TUI, and the running process. |
+| **Reconnect to the same shell** | A dropped WebView or a sleeping phone re-attaches to the same channel and replays the scrollback. |
 | **Key bar** | Esc / Tab / Ctrl / Alt / arrows / `\|` `-` `/` `~` above the keyboard. Tap a modifier for one keystroke, long-press to lock it. |
 | **Three interaction modes** | Browse (drag scrolls), Gestures (swipe = arrows with hold-to-repeat, two-finger swipe = PgUp/PgDn, double-tap = Tab, pinch = font size), Select (drag paints a cell range with a copy/paste bar). |
 | **In-terminal search** | Match count, next/previous, highlight colours derived from the active palette. |
-| **157 terminal palettes** | Every scheme from `xterm-theme`, plus "follow the app theme". The picker previews each palette's own ANSI colours. |
-| **SFTP file browser** | Browse, preview text, and download from the remote host. Directory navigation, breadcrumbs, "open a terminal here". |
-| **Port forwarding** | `127.0.0.1:<local>` → `<remote>:<port>` over the SSH connection, with a one-tap "open in browser" for web UIs. |
-| **Command snippets** | Saved commands, global or scoped to one host, sent with one tap. |
-| **36 themes** | The same palette set as the rest of the family: VS Code-style named themes, light and dark, applied to the UI *and* the terminal. |
-| **Host key verification** | Trust-on-first-use pinning with an explicit warning when a key changes. |
+| **157 terminal palettes** | Every scheme from `xterm-theme`, plus "follow the app theme". |
+| **SFTP file browser** | Browse, preview text, save to the device through the system picker. |
+| **Port forwarding** | `127.0.0.1:<local>` → `<remote>:<port>` over the SSH connection. |
+| **Command snippets** | Saved commands, global or scoped to one host. |
+| **36 themes** | The same VS Code-style palette set, applied to the UI *and* the terminal. |
+| **Host key verification** | Trust-on-first-use pinning, with both fingerprints shown when a key changes. |
 
-## Architecture
-
-```
-┌───────────────────────────────────────────┐
-│ Vue 3 + TypeScript (web/)                 │
-│   xterm.js  ·  fetch/WebSocket  ·  i18n   │
-└───────────────┬───────────────────────────┘
-                │ HTTP + WS on 127.0.0.1
-┌───────────────▼───────────────────────────┐
-│ Go server (cmd/termd)                     │
-│   internal/handler   REST + WS            │
-│   internal/terminal  PTY sessions, replay │
-│   internal/sshx      ssh.Client, host keys│
-│   internal/forward   local port forwards  │
-│   internal/store     SQLite               │
-│   internal/secret    AES-GCM credential   │
-└───────────────────────────────────────────┘
-```
-
-The server binds **loopback only**. The UI is the only client, and a
-LAN-reachable port would hand every stored SSH credential to anyone on the same
-Wi-Fi.
-
-On Android the Go binary is built as a PIE executable and shipped as
-`lib/arm64-v8a/libtermd.so` — the app's native library directory is the only
-place Android allows `exec` from, since the data directory is mounted `noexec`.
-
-## Getting started
+## Build
 
 ```bash
-# Browser / desktop
-./build.sh --restart          # build + run on http://127.0.0.1:20010
-
-# Android
-./build.sh --android          # debug APK at android/app/build/outputs/apk/debug/
-./build.sh --android --release
+./build.sh              # debug APK
+./build.sh --release    # signed release APK
 ```
 
-On first launch you set an access password. It protects the stored host
-credentials; every API route requires it.
+Output: `android/app/build/outputs/apk/{debug,release}/clawterm-android*.apk`
+
+There is no other artifact. `build.sh` also asserts the APK contains **no native
+libraries** — one was how the previous version shipped a Go server, so a revert is
+caught at build time.
 
 ### Development
 
 ```bash
-npm run dev                   # Vite on :5173, proxying /api to :20010
-go test ./...                 # backend
-npx vitest run                # frontend
+npm run dev        # Vite on :5173 — but the app needs the native bridge,
+                   # so a browser shows "this build needs the app shell"
+npm test           # 111 frontend tests
 npx vue-tsc --noEmit -p web/tsconfig.json
+
+cd android && ./gradlew testDebugUnitTest   # 30 native tests
 ```
 
-`npm run dev` expects the server on port 20010 (see `vite.config.ts`); run
-`./clawterm --port 20010` in another terminal.
+The frontend can be driven in a browser by installing a fake
+`window.ClawTermNative` (see `web/src/native/__tests__/bridge.test.ts` for the
+protocol). That is how the UI is tested without an emulator.
 
-## Data
-
-Everything lives under one directory (`--data-dir`, default `~/.clawterm`):
+## Architecture
 
 ```
-clawterm.db          hosts, snippets, forwards, pinned host keys
-secrets/master.key   AES-256 key (0600)
-secrets/<id>.password
-secrets/<id>.passphrase
+┌──────────────────────────────────────────────────────┐
+│ WebView (file:///android_asset/web/index.html)       │
+│   Vue 3 · xterm.js · 111 tests                       │
+│                                                      │
+│   window.ClawTermNative.invoke(id, method, json) ───┐│
+└─────────────────────────────────────────────────────┼┘
+                                                      │
+┌─────────────────────────────────────────────────────▼┐
+│ App process (Java)                                   │
+│   BridgeDispatcher   one switch over ~35 methods     │
+│   SshConnection      JSch session + PTY channel      │
+│   TerminalManager    sessions + scrollback ring      │
+│   ForwardManager     local listeners + direct-tcpip  │
+│   Db                 SQLite (hosts/snippets/rules)   │
+│   SecretStore        AES-GCM files + password hash   │
+└──────────────────────────────────────────────────────┘
 ```
 
-The database and the secrets are deliberately separate files: a copied database
-is not a copied credential store, and deleting a host removes its secret with a
-single unlink.
+### The bridge
 
-Encryption here is **not** a defence against someone who can already read the
-app's private data directory — on Android that boundary is the OS sandbox. It
-raises the bar for the realistic accident (a backup or a directory shared
-wholesale) and keeps the files non-greppable.
+One `@JavascriptInterface` method, not thirty-five:
+
+```java
+public void invoke(String requestId, String method, String payloadJson)
+```
+
+Each `@JavascriptInterface` is a magic string that must match on both sides and
+be kept by R8; a typo only shows up at runtime as "method not found". With one
+entry point, the method names live in one TypeScript union and one Java `switch`.
+
+Requests are correlated by id (two concurrent calls must not settle each other's
+promises), replies are `ok`/`error` with a **stable code** the UI translates, and
+every request has a timeout so a native crash mid-call cannot hang the UI.
+
+Terminal output crosses as **base64**, not text: a PTY stream is arbitrary bytes,
+and a multi-byte character split across two reads is normal. The view decodes with
+`TextDecoder(stream: true)` so a split character is held, not turned into two
+replacement characters.
+
+### Where data lives
+
+```
+/data/data/com.clawterm.app/files/clawterm/
+  clawterm.db          hosts, snippets, forward rules, pinned host keys
+  secrets/master.key   AES-256 key (0600)
+  secrets/<id>.password
+  secrets/<id>.passphrase
+  secrets/auth.hash    salted SHA-256 of the access password
+```
+
+The database and the credential store are deliberately separate files: a
+database copied for backup is not a copied credential store, and deleting a host
+removes its secret with a single unlink.
+
+**What the encryption does and does not do.** The key sits next to the data, so
+this is not a defence against someone who can read the app's private directory —
+on Android that boundary is the OS sandbox. It buys two real things: a shared
+backup leaks no readable credentials, and the files are not greppable. Saying so
+plainly matters: a user who thinks these files are safe to hand around is worse
+off than one who knows they are not.
+
+## Security notes
+
+- **No listening socket.** Verified at build time (no native libs) and by design
+  (no `ServerSocket` outside `ForwardManager`, which binds loopback only).
+- The access password is a **local device gate**, not an account. It is stored as
+  a salted SHA-256 and compared with `MessageDigest.isEqual` (constant time).
+- Changing the password requires the **current** one, so an unlocked phone cannot
+  be locked out by whoever picks it up.
+- A fresh install starts **locked**: the setup screen is the only way in.
+- Host keys are pinned on first connect. A changed key fails the handshake and
+  reports both fingerprints; re-pinning is an explicit action.
+- Port forwards bind `127.0.0.1` only — never `0.0.0.0`, which would expose a
+  remote database to the whole local network.
+- No storage permission is requested; everything is in the app sandbox.
+- `allowBackup="false"`, so the credential files are not swept into a cloud
+  backup.
 
 ## Project layout
 
 ```
-cmd/termd/              server entry point
-internal/
-  handler/              REST + WebSocket surface (routes_api.go is the list)
-  terminal/             PTY session manager, scrollback ring buffer
-  sshx/                 ssh client, host-key verification, SFTP
-  forward/              local port forwards
-  store/                SQLite (hosts, snippets, rules, known hosts, settings)
-  secret/               encrypted credential files
-  frontend/             static handler + //go:embed of the built UI
-web/
-  index.html            theme bootstrap runs before CSS loads
-  css/                  variables.css holds all 36 themes
-  src/components/       panels, sheets, shared primitives
-  src/composables/      state (settings, hosts, terminal tabs, sessions, gestures)
-android/                WebView shell + bundled server
-docs/                   design notes
+android/app/src/main/java/com/clawterm/app/
+  MainActivity.java      WebView + wiring; no server
+  BridgeDispatcher.java  the request switch
+  SshConnection.java     JSch session, PTY, SFTP, host-key pinning
+  TerminalManager.java   sessions + ring buffer
+  ForwardManager.java    local forwards
+  Db.java                SQLite
+  SecretStore.java       AES-GCM + password hash
+  AppConfig.java         paths, theme, lock state
+web/src/
+  native/                bridge client + typed API (protocol.ts is the contract)
+  composables/           state: hosts, tabs, sessions, gestures, settings
+  components/            panels, sheets, shared primitives
+  utils/                 themes, key sequences, palette data
 ```
-
-## Security notes
-
-- The server binds `127.0.0.1`. There is no remote-access mode by design.
-- The access password is stored as-is in the local DB and compared in constant
-  time; it is a local gate, not an account system.
-- Host keys are pinned on first connect. A changed key is reported with both
-  fingerprints and requires an explicit "accept" action.
-- Port forwards bind `127.0.0.1` only — never `0.0.0.0`.
-- Cleartext HTTP is permitted for `127.0.0.1` only
-  (`network_security_config.xml`); everything else is denied.
 
 ## Licence
 
