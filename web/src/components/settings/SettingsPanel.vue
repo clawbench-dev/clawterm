@@ -54,6 +54,14 @@
           </select>
         </div>
 
+        <div class="settings-row" @click="paletteOpen = true">
+          <span class="settings-label">{{ t('settings.terminalTheme') }}</span>
+          <span class="settings-value">
+            {{ paletteLabel }}
+            <ChevronRightIcon :size="14" class="chevron" />
+          </span>
+        </div>
+
         <div class="settings-row">
           <span class="settings-label">{{ t('settings.cursorBlink') }}</span>
           <label class="switch">
@@ -149,6 +157,7 @@
     </div>
 
     <ThemeSheet :open="themeOpen" @close="themeOpen = false" />
+    <TerminalThemeSheet :open="paletteOpen" @close="paletteOpen = false" />
     <ChangePasswordModal :open="passwordOpen" @close="passwordOpen = false" />
   </div>
 </template>
@@ -159,6 +168,7 @@ import { useI18n } from 'vue-i18n'
 import { ChevronRight as ChevronRightIcon, LogOut as LogOutIcon } from 'lucide-vue-next'
 import ThemeSheet from '@/components/common/ThemeSheet.vue'
 import ChangePasswordModal from './ChangePasswordModal.vue'
+import TerminalThemeSheet from '@/components/terminal/TerminalThemeSheet.vue'
 import { settings, setSetting, resetSettings } from '@/composables/useSettings'
 import { setLocale } from '@/i18n'
 import { themeMeta } from '@/utils/themeMeta'
@@ -171,8 +181,25 @@ const { t } = useI18n()
 const { logout, status } = useAuth()
 
 const themeOpen = ref(false)
+const paletteOpen = ref(false)
 const passwordOpen = ref(false)
 const version = ref('')
+
+/**
+ * The palette's display name.
+ *
+ * 'auto' has its own label; a bundled scheme is shown by its prettified id
+ * (`Solarized_Light` → `Solarized Light`), matching the picker rows so the
+ * settings row and the menu agree.
+ */
+const paletteLabel = computed(() => {
+  const id = settings.terminalTheme
+  if (id === 'auto') return t('settings.terminalThemeAuto')
+  return id
+    .replace(/_/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+})
 
 const themeLabel = computed(() => {
   if (settings.theme === 'auto') return t('settings.themeAuto')

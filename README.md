@@ -16,6 +16,9 @@ the desktop version are the same code, not two implementations that drift.
 | **Multi-tab terminal** | One SSH shell per tab, kept alive across reconnects. Switch tabs without losing scrollback, the cursor position in a TUI, or the running process. |
 | **Reconnect to the same shell** | A phone that sleeps, a Wi-Fi change, a server that hiccups — the client re-attaches to the same PTY and replays the scrollback. |
 | **Key bar** | Esc / Tab / Ctrl / Alt / arrows / `\|` `-` `/` `~` above the keyboard. Tap a modifier for one keystroke, long-press to lock it. |
+| **Three interaction modes** | Browse (drag scrolls), Gestures (swipe = arrows with hold-to-repeat, two-finger swipe = PgUp/PgDn, double-tap = Tab, pinch = font size), Select (drag paints a cell range with a copy/paste bar). |
+| **In-terminal search** | Match count, next/previous, highlight colours derived from the active palette. |
+| **157 terminal palettes** | Every scheme from `xterm-theme`, plus "follow the app theme". The picker previews each palette's own ANSI colours. |
 | **SFTP file browser** | Browse, preview text, and download from the remote host. Directory navigation, breadcrumbs, "open a terminal here". |
 | **Port forwarding** | `127.0.0.1:<local>` → `<remote>:<port>` over the SSH connection, with a one-tap "open in browser" for web UIs. |
 | **Command snippets** | Saved commands, global or scoped to one host, sent with one tap. |
@@ -111,7 +114,7 @@ web/
   index.html            theme bootstrap runs before CSS loads
   css/                  variables.css holds all 36 themes
   src/components/       panels, sheets, shared primitives
-  src/composables/      state (settings, hosts, terminal tabs, sessions)
+  src/composables/      state (settings, hosts, terminal tabs, sessions, gestures)
 android/                WebView shell + bundled server
 docs/                   design notes
 ```

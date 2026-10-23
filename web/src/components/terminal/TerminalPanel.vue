@@ -46,6 +46,29 @@
       >
         <SearchIcon :size="15" />
       </button>
+      <!-- Interaction mode. Only meaningful on touch: on a desktop the mouse
+           already scrolls and selects, and a mode switch would be a third way
+           to do the same thing. -->
+      <button
+        class="term-tab-add"
+        :title="t('settings.terminalTheme')"
+        data-action="terminal-palette"
+        @click="paletteOpen = true"
+      >
+        <PaletteIcon :size="15" />
+      </button>
+      <button
+        v-if="isTouch"
+        class="term-tab-add mode-btn"
+        :class="[`mode-${gestures.mode.value}`, { active: gestures.mode.value !== 'browse' }]"
+        :title="`${t('terminal.modes')}: ${modeLabel}`"
+        data-action="terminal-mode"
+        @click="cycleMode"
+      >
+        <EyeIcon v-if="gestures.mode.value === 'browse'" :size="15" />
+        <HandIcon v-else-if="gestures.mode.value === 'gesture'" :size="15" />
+        <TextCursorInputIcon v-else :size="15" />
+      </button>
     </div>
 
     <!-- In-terminal search. xterm keeps the matches, so this only has to drive
@@ -89,7 +112,7 @@
     <!-- One host element per tab, kept alive and moved between slots. xterm
          instances live in the tab store, so switching tabs never destroys the
          buffer or the running TUI. -->
-    <div v-else class="term-body">
+    <div v-else class="term-body" :style="paletteBg ? { '--term-bg': paletteBg } : {}">
       <div
         v-for="tab in tabs"
         :key="tab.id"
@@ -97,6 +120,29 @@
         class="term-host"
         :class="{ active: tab.id === activeTabId }"
       />
+
+      <!-- Gesture badge: a symbol for ~600ms after a swipe, so the user learns
+           which gesture fired without reading a legend. -->
+      <Transition name="gesture-hint">
+        <div v-if="gestureHint" class="gesture-hint">{{ gestureHint }}</div>
+      </Transition>
+
+      <!-- Selection action bar. Only in selection mode: elsewhere a drag is a
+           scroll, so there is nothing to act on. -->
+      <div v-if="gestures.mode.value === 'selection' && selectionText" class="selection-bar">
+        <span class="selection-count">{{ t('terminal.selectionChars', { n: selectionText.length }) }}</span>
+        <button class="selection-btn" @click="copySelection">
+          <CopyIcon :size="13" />
+          <span>{{ t('terminal.selectionCopy') }}</span>
+        </button>
+        <button class="selection-btn primary" @click="pasteSelection">
+          <ClipboardPasteIcon :size="13" />
+          <span>{{ t('terminal.selectionQuote') }}</span>
+        </button>
+        <button class="selection-btn icon" :title="t('common.close')" @click="clearSelection">
+          <XIcon :size="13" />
+        </button>
+      </div>
 
       <!-- Status overlays sit above the active terminal only. -->
       <div v-if="activeTab && activeTab.state !== 'connected'" class="term-status">
@@ -170,6 +216,7 @@
       </div>
 
       <SnippetSheet :open="snippetsOpen" :host-id="activeTab?.hostId ?? 0" @close="snippetsOpen = false" @send="sendSnippet" />
+    <TerminalThemeSheet :open="paletteOpen" @close="paletteOpen = false" />
     </div>
   </div>
 </template>
@@ -180,6 +227,9 @@ import { useI18n } from 'vue-i18n'
 import {
   X as XIcon, Plus as PlusIcon, Zap as ZapIcon, SquareTerminal as SquareTerminalIcon,
   Search as SearchIcon, ChevronUp as ChevronUpIcon, ChevronDown as ChevronDownIcon,
+  Eye as EyeIcon, Hand as HandIcon, TextCursorInput as TextCursorInputIcon,
+  Copy as CopyIcon, ClipboardPaste as ClipboardPasteIcon,
+  Palette as PaletteIcon,
 } from 'lucide-vue-next'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -188,16 +238,21 @@ import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 import LoadingIndicator from '@/components/common/LoadingIndicator.vue'
 import SnippetSheet from '@/components/snippets/SnippetSheet.vue'
+import TerminalThemeSheet from './TerminalThemeSheet.vue'
 import {
   MAX_TABS, activeTab as activeTabRef, activeTabId, tabs,
   attachTerminal, closeTab, detachTerminal, openTab, renameTab, resizeTab, selectTab, sendInput,
 } from '@/composables/useTerminalTabs'
 import { hosts } from '@/composables/useHosts'
-import { settings, effectiveTheme } from '@/composables/useSettings'
+import { settings, setSetting, effectiveTheme, effectiveThemeRef } from '@/composables/useSettings'
 import { KEY_SEQUENCES } from '@/utils/terminalProtocol'
 import { LONG_PRESS_MS, useModifiers } from '@/composables/useModifiers'
+import { selectionCellsToSelect, useTerminalGestures } from '@/composables/useTerminalGestures'
 import { buildXtermTheme, mixHex, terminalFontStack } from '@/utils/terminalTheme'
+import { resolveTerminalTheme } from '@/utils/terminalThemes'
+import type { ITheme } from '@xterm/xterm'
 import { confirmDialog, setTerminalFocus, showToast, useSoftKeyboard } from '@/composables/useUi'
+import { appLog } from '@/utils/appLog'
 
 const { t } = useI18n()
 const { keyboardHeight } = useSoftKeyboard()
@@ -205,6 +260,164 @@ const { keyboardHeight } = useSoftKeyboard()
 const activeTab = activeTabRef
 const tabListRef = ref<HTMLElement | null>(null)
 const snippetsOpen = ref(false)
+const paletteOpen = ref(false)
+
+// ── Gestures ────────────────────────────────────────────────────────────────
+
+/**
+ * Touch is the axis that matters, not screen width: a tablet with a mouse and a
+ * phone in landscape both exist. `pointer: coarse` is the honest signal; the
+ * `maxTouchPoints` fallback covers WebViews that do not report it.
+ */
+const isTouch = computed(() => {
+  if (typeof window === 'undefined') return false
+  const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false
+  return coarse || (navigator.maxTouchPoints ?? 0) > 0
+})
+
+const gestureHint = ref('')
+let gestureHintTimer: ReturnType<typeof setTimeout> | null = null
+
+const selectionText = ref('')
+
+const modeLabel = computed(() => {
+  const m = gestures.mode.value
+  return m === 'browse' ? t('terminal.modeBrowse')
+    : m === 'gesture' ? t('terminal.modeGesture')
+      : t('terminal.modeSelection')
+})
+
+function flashHint(symbol: string) {
+  gestureHint.value = symbol
+  if (gestureHintTimer) clearTimeout(gestureHintTimer)
+  gestureHintTimer = setTimeout(() => { gestureHint.value = '' }, 600)
+}
+
+/**
+ * Cell metrics for coordinate → cell conversion.
+ *
+ * Read from xterm's renderer rather than recomputing the font metrics: the
+ * renderer already knows the exact cell size, and a second calculation would
+ * disagree by a sub-pixel that accumulates into the wrong row at the bottom of
+ * the screen.
+ */
+function cellSize(): { w: number; h: number } {
+  const rec = terms.get(activeTabId.value)
+  if (!rec) return { w: 0, h: 0 }
+  const core = (rec.term as unknown as {
+    _core?: { _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } } }
+  })._core
+  const cell = core?._renderService?.dimensions?.css?.cell
+  if (cell && cell.width > 0 && cell.height > 0) {
+    return { w: cell.width, h: cell.height }
+  }
+  // Fallback: measure a single character cell from the DOM. `_core` is private
+  // API and a future xterm may move it.
+  const screen = rec.term.element?.querySelector('.xterm-screen')
+  if (screen && rec.term.cols > 0 && rec.term.rows > 0) {
+    const r = screen.getBoundingClientRect()
+    return { w: r.width / rec.term.cols, h: r.height / rec.term.rows }
+  }
+  return { w: 0, h: 0 }
+}
+
+function scrollByPixels(deltaY: number) {
+  const rec = terms.get(activeTabId.value)
+  if (!rec) return
+  const { h } = cellSize()
+  if (h <= 0) return
+  // A drag of one cell height scrolls one line. Rounding (rather than
+  // accumulating a fractional remainder) is deliberate: sub-line scrolling is
+  // not a thing in a terminal, and an accumulator makes the list feel laggy.
+  const lines = Math.round(deltaY / h)
+  if (lines !== 0) rec.term.scrollLines(-lines)
+}
+
+/**
+ * The element gestures bind to: the ACTIVE tab's host.
+ *
+ * A ref (not the raw element) because the tab can change while a gesture is in
+ * flight — the composable reads `.value` at event time, so re-pointing it and
+ * re-attaching is enough.
+ */
+const gestureEl = ref<HTMLElement | null>(null)
+
+const gestures = useTerminalGestures(
+  gestureEl,
+  {
+    sendArrowUp: () => sendKey('up'),
+    sendArrowDown: () => sendKey('down'),
+    sendArrowLeft: () => sendKey('left'),
+    sendArrowRight: () => sendKey('right'),
+    sendPageUp: () => sendKey('pgup'),
+    sendPageDown: () => sendKey('pgdn'),
+    sendTab: () => sendKey('tab'),
+    onPinchZoom: (steps) => {
+      const next = Math.min(22, Math.max(9, settings.terminalFontSize + steps))
+      if (next !== settings.terminalFontSize) setSetting('terminalFontSize', next)
+      flashHint(`${next}px`)
+    },
+    onGestureHint: flashHint,
+    onTouchScroll: scrollByPixels,
+    getCellHeight: () => cellSize().h,
+    getCellWidth: () => cellSize().w,
+    onSelectionStart: (col, row) => {
+      const rec = terms.get(activeTabId.value)
+      rec?.term.select(col, rec.term.buffer.active.viewportY + row, 1)
+      selectionText.value = rec?.term.getSelection() ?? ''
+    },
+    onSelectionExtend: (aCol, aRow, cCol, cRow) => {
+      const rec = terms.get(activeTabId.value)
+      if (!rec) return
+      const { col, row, length } = selectionCellsToSelect(
+        aCol, aRow, cCol, cRow, rec.term.buffer.active.viewportY, rec.term.cols,
+      )
+      rec.term.select(col, row, length)
+      selectionText.value = rec.term.getSelection()
+    },
+    onSelectionEnd: () => {
+      const rec = terms.get(activeTabId.value)
+      selectionText.value = rec?.term.getSelection() ?? ''
+      // Copy-on-select still applies in selection mode: the bar exists to
+      // PASTE, and requiring a second tap to also copy would be redundant.
+      if (settings.copyOnSelect && selectionText.value) {
+        void navigator.clipboard?.writeText(selectionText.value).catch(() => {})
+      }
+    },
+  },
+)
+
+function cycleMode() {
+  gestures.cycleMode()
+  if (gestures.mode.value !== 'selection') clearSelection()
+  if (settings.haptic) navigator.vibrate?.(8)
+  flashHint(modeLabel.value)
+}
+
+function clearSelection() {
+  const rec = terms.get(activeTabId.value)
+  rec?.term.clearSelection()
+  selectionText.value = ''
+}
+
+async function copySelection() {
+  if (!selectionText.value) return
+  try {
+    await navigator.clipboard.writeText(selectionText.value)
+    showToast(t('common.copied'), 'success')
+  } catch {
+    showToast(t('terminal.selectionCopy'), 'error')
+  }
+}
+
+function pasteSelection() {
+  if (!selectionText.value) return
+  const id = activeTabId.value
+  if (!id) return
+  sendInput(id, selectionText.value)
+  clearSelection()
+  terms.get(id)?.term.focus()
+}
 
 // Ctrl/Alt live in a composable so the state machine (tap = one-shot, long
 // press = locked) can be tested without mounting xterm.
@@ -388,7 +601,7 @@ function ensureTerm(tabId: string): { term: Terminal; fit: FitAddon; search: Sea
   const term = new Terminal({
     fontSize: settings.terminalFontSize,
     fontFamily: terminalFontStack(settings.terminalFont),
-    theme: buildXtermTheme(effectiveTheme()),
+    theme: buildXtermTheme(effectiveThemeRef.value),
     cursorBlink: settings.cursorBlink,
     scrollback: 5000,
     allowProposedApi: true,
@@ -463,6 +676,10 @@ function setTabHost(tabId: string, el: HTMLElement | null) {
     attachTerminal(tabId, rec.term, (data) => rec.term.write(data))
   }
   if (tabId === activeTabId.value) {
+    gestureEl.value = el
+    // Bind after the element exists; the composable is idempotent so a tab
+    // switch simply rebinds.
+    gestures.attach()
     nextTick(() => requestAnimationFrame(fitActive))
   }
 }
@@ -506,7 +723,12 @@ function fitActive() {
 
 // Refit when the active tab changes, the viewport resizes, or the keyboard
 // opens (both change the available rows).
-watch(activeTabId, () => nextTick(() => requestAnimationFrame(fitActive)))
+watch(activeTabId, () => {
+  const el = hostEls.get(activeTabId.value) ?? null
+  gestureEl.value = el
+  gestures.attach()
+  nextTick(() => requestAnimationFrame(fitActive))
+})
 watch(keyboardHeight, () => nextTick(() => requestAnimationFrame(fitActive)))
 
 let resizeObserver: ResizeObserver | null = null
@@ -529,14 +751,72 @@ onMounted(() => {
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   window.removeEventListener('resize', fitActive)
+  gestures.detach()
+  if (gestureHintTimer) clearTimeout(gestureHintTimer)
 })
 
-// Theme changes must repaint every open terminal, including background tabs:
-// xterm keeps its own palette and does not read CSS variables.
-watch(effectiveTheme, (id) => {
-  const theme = buildXtermTheme(id)
+/**
+ * The palette each terminal should use.
+ *
+ * Two sources: `auto` derives from the app theme (so the terminal never drifts
+ * from the chrome), any other id is one of the 157 bundled schemes. Resolving is
+ * async because the scheme table is a lazy chunk, so the result is cached per id
+ * and applied to EVERY open terminal — including background tabs, whose xterm
+ * instances keep their own palette and never read CSS variables.
+ */
+const resolvedPalette = ref<string>('')
+/**
+ * Background of the palette in effect.
+ *
+ * The terminal host has 12px of padding, and xterm only paints its own canvas —
+ * the padding would otherwise show the APP background. With a light palette on
+ * a dark app theme that is a dark frame around a cream terminal, which reads as
+ * a rendering bug. Binding the host's background to the palette makes the
+ * terminal a solid block of its own colour.
+ */
+const paletteBg = ref('')
+const paletteCache = new Map<string, ITheme>()
+
+async function applyTerminalPalette() {
+  const choice = settings.terminalTheme
+  const key = choice === 'auto' ? `auto:${effectiveThemeRef.value}` : choice
+  if (resolvedPalette.value === key) return
+
+  let theme: ITheme
+  if (choice === 'auto') {
+    theme = buildXtermTheme(effectiveThemeRef.value)
+  } else {
+    const hit = paletteCache.get(choice)
+    if (hit) {
+      theme = hit
+    } else {
+      try {
+        const loaded = await resolveTerminalTheme(choice)
+        // A missing id (a stale preference from an older build) falls back to
+        // the derived palette rather than leaving the terminal unstyled.
+        theme = loaded ?? buildXtermTheme(effectiveThemeRef.value)
+        paletteCache.set(choice, theme)
+      } catch (err) {
+        appLog.w('Terminal', 'palette load failed', String(err))
+        theme = buildXtermTheme(effectiveThemeRef.value)
+      }
+    }
+  }
+  resolvedPalette.value = key
+  paletteBg.value = theme.background || ''
   for (const { term } of terms.values()) term.options.theme = theme
-})
+}
+
+// The app theme only matters for `auto`; a fixed palette must survive an app
+// theme change untouched.
+watch([effectiveThemeRef, () => settings.terminalTheme], () => {
+  void applyTerminalPalette()
+}, { immediate: true })
+
+// A newly created terminal must start with the current palette, not the
+// default: otherwise opening a tab flashes the wrong colours until the watcher
+// happens to fire again.
+watch(() => terms.size, () => { void applyTerminalPalette() })
 
 watch(() => settings.terminalFontSize, (v) => {
   for (const { term, fit } of terms.values()) {
@@ -832,6 +1112,105 @@ defineExpose({ fitActive })
   background: color-mix(in srgb, var(--accent-color) 12%, transparent);
 }
 
+/* ── Gesture hint badge ─────────────────────────────────────────────────── */
+
+.gesture-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: var(--space-4) var(--space-7);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 22px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 4;
+  backdrop-filter: blur(2px);
+}
+
+.gesture-hint-enter-active,
+.gesture-hint-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.gesture-hint-enter-from,
+.gesture-hint-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.9);
+}
+
+/* ── Selection action bar ───────────────────────────────────────────────── */
+
+.selection-bar {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-5);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated, var(--bg-secondary));
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-md);
+  z-index: 5;
+  max-width: calc(100% - 2 * var(--space-6));
+}
+
+.selection-count {
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-2xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.selection-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-5);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.selection-btn:active {
+  transform: scale(0.97);
+}
+
+.selection-btn.primary {
+  background: var(--accent-color);
+  border-color: color-mix(in srgb, var(--accent-color) 72%, black);
+  color: #fff;
+}
+
+.selection-btn.icon {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* The mode button carries its own tint so the current mode is visible without
+   reading the icon: browse is neutral, gesture and selection are accented. */
+.mode-btn.mode-gesture {
+  color: var(--color-yellow);
+}
+
+.mode-btn.mode-selection {
+  color: var(--accent-color);
+}
+
 /* ── Search bar ─────────────────────────────────────────────────────────── */
 
 .term-search {
@@ -913,6 +1292,8 @@ defineExpose({ fitActive })
   flex: 1;
   min-height: 0;
   padding: var(--space-3) 0 0 var(--space-3);
+  /* Matches the palette, not the app theme: see paletteBg in the script. */
+  background: var(--term-bg, var(--bg-primary));
 }
 
 .term-host.active {

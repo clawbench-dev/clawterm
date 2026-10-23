@@ -1,6 +1,6 @@
-import { reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { appLog } from '@/utils/appLog'
-import { applyTheme, DEFAULT_THEME, resolveTheme } from '@/utils/themeMeta'
+import { applyTheme, DARK_DEFAULT, DEFAULT_THEME, LIGHT_DEFAULT, resolveTheme } from '@/utils/themeMeta'
 
 /**
  * User preferences. Everything here is per-device (localStorage), not per
@@ -104,4 +104,39 @@ watch(
 /** The concrete theme id in effect (never 'auto'). */
 export function effectiveTheme(): string {
   return resolveTheme(settings.theme)
+}
+
+/**
+ * Reactive form of {@link effectiveTheme}.
+ *
+ * A plain function cannot be watched, so anything that must REACT to the theme
+ * (the terminal palette, the status bar) needs this. It also tracks the system
+ * preference, because `auto` has to re-resolve when the OS switches to dark
+ * while the app is open.
+ */
+export const effectiveThemeRef = computed(() => {
+  if (settings.theme !== 'auto') return settings.theme
+  // `systemPrefersDark` is a ref updated by a media-query listener, so this
+  // computed re-runs when the OS changes.
+  return systemPrefersDark.value ? DARK_DEFAULT : LIGHT_DEFAULT
+})
+
+/**
+ * The OS dark-mode preference.
+ *
+ * Subscribed once at module load: `matchMedia().matches` alone is a snapshot,
+ * and a user who flips the system theme while the app is open would otherwise
+ * keep the old palette until a reload.
+ */
+export const systemPrefersDark = ref(
+  typeof window !== 'undefined'
+    ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true)
+    : true,
+)
+
+if (typeof window !== 'undefined' && window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)')
+  const onChange = (e: MediaQueryListEvent) => { systemPrefersDark.value = e.matches }
+  if (mq.addEventListener) mq.addEventListener('change', onChange)
+  else mq.addListener?.(onChange)
 }
