@@ -19,7 +19,9 @@ The client-only design:
 - **Credentials** are AES-GCM files written by the app.
 
 `build.sh` fails the build if the APK contains a native library, because that is
-how the server used to get in.
+how the server used to get in. Port forwarding was the last thing that bound a
+socket; it is gone too, so "no listening port" is now a property of the whole
+binary rather than a claim with an exception.
 
 ## The bridge has one entry point
 

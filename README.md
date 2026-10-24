@@ -146,7 +146,8 @@ off than one who knows they are not.
 
 - **No listening socket.** Verified at build time (no native libs) and by design:
   the app never binds a port, so nothing on the device or the network can reach
-  it. `ServerSocket` does not appear anywhere in the source.
+  it. `ServerSocket` appears nowhere in the main source, and a test fails the
+  build if one is ever added.
 - The UI origin is `appassets.androidplatform.net`, a reserved domain that cannot
   resolve on the internet; the asset loader intercepts it inside the WebView.
 - The access password is a **local device gate**, not an account. It is stored as
