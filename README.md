@@ -6,6 +6,7 @@ listens on a port, nothing runs in the background, and there is no companion
 service to install.
 
 ![Hosts](docs/screenshots/hosts.png)
+![Terminal](docs/screenshots/terminal.png)
 
 ## Why there is no server
 
