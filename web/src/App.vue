@@ -164,8 +164,16 @@ const contextLabel = computed(() => {
 const dockRefs = shallowRef<(HTMLElement | null)[]>([])
 const indicatorStyle = ref<Record<string, string>>({})
 
+/**
+ * The dock is destroyed and rebuilt whenever it is hidden (the soft keyboard
+ * opens, or the viewport crosses the wide-screen breakpoint). Vue calls this
+ * with `null` before unmounting, so the slot must be overwritten both ways:
+ * keeping the old element leaves `updateIndicator` measuring detached nodes,
+ * whose `offsetLeft` is 0 for every tab — the pill then sticks to the first
+ * button no matter which tab is active.
+ */
 function setDockRef(el: HTMLElement | null, i: number) {
-  if (!dockRefs.value[i] && el) dockRefs.value[i] = el
+  dockRefs.value[i] = el
 }
 
 /**
@@ -185,7 +193,10 @@ function updateIndicator() {
 }
 
 watch(activeTab, () => nextTick(updateIndicator))
-watch(isWideScreen, () => nextTick(updateIndicator))
+// The dock is torn down by both conditions, so re-measure whenever it comes
+// back: the tab may have changed while it was hidden and the pill must not be
+// left at the position it had before the remount.
+watch([isWideScreen, keyboardOpen], () => nextTick(updateIndicator))
 
 // ── Tab switching ───────────────────────────────────────────────────────────
 
