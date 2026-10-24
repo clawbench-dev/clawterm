@@ -46,7 +46,6 @@ the device.
 | **In-terminal search** | Match count, next/previous, highlight colours derived from the active palette. |
 | **157 terminal palettes** | Every scheme from `xterm-theme`, plus "follow the app theme". |
 | **SFTP file browser** | Browse, preview text, save to the device through the system picker. |
-| **Port forwarding** | `127.0.0.1:<local>` → `<remote>:<port>` over the SSH connection. |
 | **Command snippets** | Saved commands, global or scoped to one host. |
 | **36 themes** | The same VS Code-style palette set, applied to the UI *and* the terminal. |
 | **Host key verification** | Trust-on-first-use pinning, with both fingerprints shown when a key changes. |
@@ -91,18 +90,17 @@ protocol). That is how the UI is tested without an emulator.
                                                       │
 ┌─────────────────────────────────────────────────────▼┐
 │ App process (Java)                                   │
-│   BridgeDispatcher   one switch over ~35 methods     │
+│   BridgeDispatcher   one switch over 26 methods      │
 │   SshConnection      JSch session + PTY channel      │
 │   TerminalManager    sessions + scrollback ring      │
-│   ForwardManager     local listeners + direct-tcpip  │
-│   Db                 SQLite (hosts/snippets/rules)   │
+│   Db                 SQLite (hosts, snippets, pins)  │
 │   SecretStore        AES-GCM files + password hash   │
 └──────────────────────────────────────────────────────┘
 ```
 
 ### The bridge
 
-One `@JavascriptInterface` method, not thirty-five:
+One `@JavascriptInterface` method, not twenty-six:
 
 ```java
 public void invoke(String requestId, String method, String payloadJson)
@@ -125,7 +123,7 @@ replacement characters.
 
 ```
 /data/data/com.clawterm.app/files/clawterm/
-  clawterm.db          hosts, snippets, forward rules, pinned host keys
+  clawterm.db          hosts, snippets, pinned host keys
   secrets/master.key   AES-256 key (0600)
   secrets/<id>.password
   secrets/<id>.passphrase
@@ -145,8 +143,9 @@ off than one who knows they are not.
 
 ## Security notes
 
-- **No listening socket.** Verified at build time (no native libs) and by design
-  (no `ServerSocket` outside `ForwardManager`, which binds loopback only).
+- **No listening socket.** Verified at build time (no native libs) and by design:
+  the app never binds a port, so nothing on the device or the network can reach
+  it. `ServerSocket` does not appear anywhere in the source.
 - The UI origin is `appassets.androidplatform.net`, a reserved domain that cannot
   resolve on the internet; the asset loader intercepts it inside the WebView.
 - The access password is a **local device gate**, not an account. It is stored as
@@ -156,8 +155,6 @@ off than one who knows they are not.
 - A fresh install starts **locked**: the setup screen is the only way in.
 - Host keys are pinned on first connect. A changed key fails the handshake and
   reports both fingerprints; re-pinning is an explicit action.
-- Port forwards bind `127.0.0.1` only — never `0.0.0.0`, which would expose a
-  remote database to the whole local network.
 - No storage permission is requested; everything is in the app sandbox.
 - `allowBackup="false"`, so the credential files are not swept into a cloud
   backup.
@@ -170,7 +167,6 @@ android/app/src/main/java/com/clawterm/app/
   BridgeDispatcher.java  the request switch
   SshConnection.java     JSch session, PTY, SFTP, host-key pinning
   TerminalManager.java   sessions + ring buffer
-  ForwardManager.java    local forwards
   Db.java                SQLite
   SecretStore.java       AES-GCM + password hash
   AppConfig.java         paths, theme, lock state

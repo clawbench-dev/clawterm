@@ -120,6 +120,38 @@ public class AppConfigTest {
         assertTrue("the JS chunks must be at assets/web/js/, missing: " + js, js.isDirectory());
     }
 
+    /**
+     * The app must never bind a port.
+     *
+     * This is the property the whole client-only design rests on, and it is
+     * invisible at runtime: a stray listener would work fine and only be noticed
+     * by someone scanning the device. It is checked at the source level because
+     * there is no hook to observe a `ServerSocket` that is never created.
+     */
+    @Test
+    public void noListeningSocketAnywhere() throws Exception {
+        java.io.File java = new java.io.File(appDir(), "src/main/java");
+        StringBuilder hits = new StringBuilder();
+        collect(java, hits);
+        assertEquals("the app must not bind a port: " + hits, 0, hits.length());
+    }
+
+    private void collect(java.io.File dir, StringBuilder hits) throws Exception {
+        java.io.File[] files = dir.listFiles();
+        if (files == null) return;
+        for (java.io.File f : files) {
+            if (f.isDirectory()) {
+                collect(f, hits);
+            } else if (f.getName().endsWith(".java")) {
+                String src = new String(java.nio.file.Files.readAllBytes(f.toPath()),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                if (src.contains("ServerSocket") || src.contains("DatagramSocket")) {
+                    hits.append(f.getName()).append(' ');
+                }
+            }
+        }
+    }
+
     private java.io.File appDir() throws Exception {
         java.io.File dir = new java.io.File("").getAbsoluteFile();
         for (int i = 0; i < 8 && dir != null; i++) {

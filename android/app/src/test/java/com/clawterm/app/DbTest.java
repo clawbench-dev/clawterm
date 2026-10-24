@@ -91,6 +91,68 @@ public class DbTest {
         assertNull(db.knownHost("h:2222"));
     }
 
+    /**
+     * The port-forward table must be gone.
+     *
+     * It was dropped with the feature. A leftover table would be harmless at
+     * runtime, but it would make a future reader believe forwards still exist
+     * and start re-wiring a UI to it.
+     */
+    @Test
+    public void noForwardRulesTable() {
+        try (android.database.Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'forward_rules'",
+                null)) {
+            assertEquals("the forward_rules table must not be created", 0, c.getCount());
+        }
+    }
+
+    /**
+     * An existing v1 database must lose the forward table on upgrade.
+     *
+     * Asserting only that `onCreate` does not create it would pass even if the
+     * migration were missing — and every installed copy is a v1 database, so the
+     * migration is the case that actually runs in the field.
+     */
+    @Test
+    public void upgradeDropsTheForwardTable() {
+        File path = ctx.getDatabasePath("clawterm.db");
+        //noinspection ResultOfMethodCallIgnored
+        path.delete();
+        // Recreate a v1 database by hand: the table existed and the version was 1.
+        android.database.sqlite.SQLiteDatabase v1 =
+                android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(path, null);
+        v1.execSQL("CREATE TABLE hosts (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                + "name TEXT NOT NULL, address TEXT NOT NULL,"
+                + "port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL,"
+                + "auth_type TEXT NOT NULL DEFAULT 'password',"
+                + "key_path TEXT NOT NULL DEFAULT '', color TEXT NOT NULL DEFAULT '',"
+                + "grp TEXT NOT NULL DEFAULT '', last_used_at INTEGER NOT NULL DEFAULT 0,"
+                + "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)");
+        v1.execSQL("CREATE TABLE forward_rules (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                + "host_id INTEGER NOT NULL, local_port INTEGER NOT NULL,"
+                + "remote_host TEXT NOT NULL, remote_port INTEGER NOT NULL,"
+                + "auto_start INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)");
+        v1.execSQL("INSERT INTO hosts (name, address, username, created_at, updated_at)"
+                + " VALUES ('kept', 'h', 'u', 't', 't')");
+        v1.setVersion(1);
+        v1.close();
+
+        Db upgraded = new Db(ctx);
+        try (android.database.Cursor c = upgraded.getReadableDatabase().rawQuery(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'forward_rules'",
+                null)) {
+            assertEquals("the migration must drop forward_rules", 0, c.getCount());
+        }
+        // The upgrade must not take the hosts with it.
+        try (android.database.Cursor c = upgraded.getReadableDatabase().rawQuery(
+                "SELECT name FROM hosts", null)) {
+            assertEquals(1, c.getCount());
+            assertEquals("kept", c.moveToFirst() ? c.getString(0) : null);
+        }
+        upgraded.close();
+    }
+
     // ── ring buffer ─────────────────────────────────────────────────────────
 
     @Test

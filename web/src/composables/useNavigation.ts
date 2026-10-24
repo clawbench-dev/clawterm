@@ -9,9 +9,9 @@ import { ref } from 'vue'
  * would make each of them aware of its parent.
  */
 
-export type TabId = 'hosts' | 'terminal' | 'files' | 'forwards' | 'snippets' | 'settings'
+export type TabId = 'hosts' | 'terminal' | 'files' | 'snippets' | 'settings'
 
-export const TABS: TabId[] = ['hosts', 'terminal', 'files', 'forwards', 'snippets', 'settings']
+export const TABS: TabId[] = ['hosts', 'terminal', 'files', 'snippets', 'settings']
 
 const STORAGE_KEY = 'clawterm-active-tab'
 

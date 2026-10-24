@@ -1,6 +1,5 @@
 package com.clawterm.app;
 
-import com.jcraft.jsch.Channel;
 import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.ChannelSftp;
 import com.jcraft.jsch.HostKey;
@@ -18,8 +17,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.security.MessageDigest;
 import java.util.Base64;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Properties;
 
 /**
@@ -46,7 +43,7 @@ final class SshConnection {
     private final String user;
     private final Session session;
 
-    /** How many channels (terminals + forwards) currently use this session. */
+    /** How many channels (terminals) currently use this session. */
     private int refCount = 1;
 
     SshConnection(Session session, String host, int port, String user) {
@@ -398,7 +395,7 @@ final class SshConnection {
         }
     }
 
-    // ── port forwarding ─────────────────────────────────────────────────────
+    // ── exec ────────────────────────────────────────────────────────────────
 
     /**
      * Run a command on the remote host and collect its output.
@@ -430,17 +427,6 @@ final class SshConnection {
     /** Escape a path for a POSIX shell single-quoted string. */
     static String shellQuote(String p) {
         return "'" + p.replace("'", "'\\''") + "'";
-    }
-
-    /** Channel type → forward registry, used by the forwarding manager. */
-    static final Map<String, Channel> OPEN_FORWARDS = new HashMap<>();
-
-    static void closeQuietly(Channel ch) {
-        try {
-            if (ch != null) ch.disconnect();
-        } catch (Exception ignored) {
-            // Best effort.
-        }
     }
 
     static void closeQuietly(ChannelSftp ch) {

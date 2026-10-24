@@ -74,9 +74,8 @@ A second tab on the same host opens a channel on the existing session instead of
 running the handshake and auth again. `SshConnection.refCount` tracks how many
 channels need it; the session closes when the last one does.
 
-A forward also takes a reference: it must keep the connection alive even if every
-terminal on that host closes. A one-off SFTP listing does not, so it rides on the
-pooled entry without pinning it.
+A one-off SFTP listing or connection test does not take a reference, so it rides
+on the pooled entry without pinning it.
 
 ## The key bar's modifiers are a three-state machine
 
@@ -109,15 +108,6 @@ A mismatch cannot be thrown out of JSch's callback (JSch turns it into a generic
 handshake failure), so it is recorded and turned into a typed error after the dial
 fails. Otherwise the UI would show "HostKey has been changed" with no fingerprints
 and no way to accept.
-
-## Port forwards bind loopback
-
-`ForwardManager` always listens on `127.0.0.1`. Binding `0.0.0.0` would expose a
-remote database (or an internal admin panel) to the entire local network, which is
-never what "forward port 5432" means.
-
-Each accepted connection gets its own `direct-tcpip` channel: closing one (a
-dropped HTTP request) must not disturb the others.
 
 ## The password is a device gate, not an account
 

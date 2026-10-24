@@ -11,8 +11,7 @@ import android.database.Cursor;
  *
  * ## Why SQLite and not JSON files
  *
- * The host list, snippets and forward rules are edited one row at a time from
- * several screens. A single JSON file would need read-modify-write on every edit,
+ * The host list and snippets are edited one row at a time from several screens. A single JSON file would need read-modify-write on every edit,
  * and a process death mid-write loses everything. SQLite gives atomic writes for
  * free and keeps the queries honest.
  *
@@ -26,7 +25,7 @@ import android.database.Cursor;
 final class Db extends SQLiteOpenHelper {
 
     private static final String NAME = "clawterm.db";
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     /** Guards every write: the app is single-process, but calls arrive from the
      *  WebView bridge thread and from SSH callbacks. */
@@ -62,15 +61,6 @@ final class Db extends SQLiteOpenHelper {
                 + "created_at TEXT NOT NULL,"
                 + "updated_at TEXT NOT NULL)");
 
-        db.execSQL("CREATE TABLE forward_rules ("
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                + "host_id INTEGER NOT NULL,"
-                + "local_port INTEGER NOT NULL,"
-                + "remote_host TEXT NOT NULL DEFAULT '127.0.0.1',"
-                + "remote_port INTEGER NOT NULL,"
-                + "auto_start INTEGER NOT NULL DEFAULT 0,"
-                + "created_at TEXT NOT NULL)");
-
         db.execSQL("CREATE TABLE known_hosts ("
                 + "address TEXT PRIMARY KEY,"
                 + "key_type TEXT NOT NULL,"
@@ -85,8 +75,14 @@ final class Db extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // Only version 1 exists. A future migration must be additive here; the
-        // alternative (drop and recreate) would silently destroy every host.
+        // Migrations are additive here; drop-and-recreate would silently destroy
+        // every host.
+        if (oldVersion < 2) {
+            // v1 stored port-forward rules. The feature is gone, so the table is
+            // dead weight — and leaving it would make a future reader think
+            // forwards still exist.
+            db.execSQL("DROP TABLE IF EXISTS forward_rules");
+        }
     }
 
     // ── settings helpers ────────────────────────────────────────────────────

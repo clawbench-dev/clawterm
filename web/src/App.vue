@@ -98,7 +98,6 @@ import {
   Server,
   SquareTerminal,
   FolderTree,
-  ArrowLeftRight,
   Zap,
   Settings,
 } from 'lucide-vue-next'
@@ -108,7 +107,6 @@ import ConfirmHost from '@/components/common/ConfirmHost.vue'
 import HostsPanel from '@/components/hosts/HostsPanel.vue'
 import TerminalPanel from '@/components/terminal/TerminalPanel.vue'
 import FilesPanel from '@/components/files/FilesPanel.vue'
-import ForwardsPanel from '@/components/forwards/ForwardsPanel.vue'
 import SnippetsPanel from '@/components/snippets/SnippetsPanel.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import SessionSidebar from '@/components/hosts/SessionSidebar.vue'
@@ -124,7 +122,6 @@ const TABS: { id: TabId; icon: unknown }[] = [
   { id: 'hosts', icon: Server },
   { id: 'terminal', icon: SquareTerminal },
   { id: 'files', icon: FolderTree },
-  { id: 'forwards', icon: ArrowLeftRight },
   { id: 'snippets', icon: Zap },
   { id: 'settings', icon: Settings },
 ]
@@ -133,7 +130,6 @@ const PANELS = {
   hosts: HostsPanel,
   terminal: TerminalPanel,
   files: FilesPanel,
-  forwards: ForwardsPanel,
   snippets: SnippetsPanel,
   settings: SettingsPanel,
 } as const

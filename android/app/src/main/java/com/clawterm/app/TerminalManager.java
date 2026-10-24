@@ -113,7 +113,7 @@ final class TerminalManager {
                 listener.onExit(s.id, s.exitCode);
                 // Release the connection reference: the PTY is gone, so this
                 // channel no longer needs it. The connection itself stays while
-                // another tab or a forward uses it.
+                // another tab uses it.
                 if (s.conn.release()) s.conn.close();
                 synchronized (TerminalManager.this) {
                     sessions.remove(s.id);

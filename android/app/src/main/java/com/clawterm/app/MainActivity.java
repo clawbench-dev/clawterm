@@ -25,6 +25,7 @@ import androidx.webkit.WebViewAssetLoader;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.core.splashscreen.SplashScreen;
 
 import org.json.JSONObject;
 
@@ -56,13 +57,19 @@ public class MainActivity extends AppCompatActivity {
     private Db db;
     private SecretStore secrets;
     private TerminalManager terminals;
-    private ForwardManager forwards;
     private BridgeDispatcher bridge;
     private boolean foreground = true;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
+        // MUST run before super.onCreate: this is what swaps the manifest's
+        // Theme.ClawTerm (a Theme.SplashScreen, i.e. a platform theme) for
+        // postSplashScreenTheme (Theme.ClawTerm.Main, an AppCompat theme).
+        // Without it the activity keeps the platform theme and
+        // AppCompatActivity.setContentView throws "You need to use a
+        // Theme.AppCompat theme" — a crash on every launch.
+        SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
         applyStatusBarTheme(AppConfig.themeIsDark(this));
 
@@ -120,19 +127,13 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        forwards = new ForwardManager((localPort, running, connections, error) -> {
-            bridge.emitEvent("forward.status", json(
-                    "localPort", localPort, "running", running,
-                    "connections", connections, "error", error == null ? "" : error));
-        });
-
         // Assets are served over https, not file://: see AppConfig.startUrl.
         assetLoader = new WebViewAssetLoader.Builder()
                 .addPathHandler("/web/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .build();
 
         configureWebView(webView);
-        bridge = new BridgeDispatcher(this, db, secrets, terminals, forwards, webView);
+        bridge = new BridgeDispatcher(this, db, secrets, terminals, webView);
         webView.addJavascriptInterface(new NativeInterface(), "ClawTermNative");
 
         webView.loadUrl(AppConfig.startUrl());
@@ -338,7 +339,6 @@ public class MainActivity extends AppCompatActivity {
         // finish tears them down.
         if (isFinishing()) {
             if (terminals != null) terminals.closeAll();
-            if (forwards != null) forwards.stopAll();
             if (bridge != null) bridge.closeAll();
             if (db != null) db.close();
         }

@@ -56,18 +56,6 @@ export interface SnippetPayload {
   send: boolean
 }
 
-export interface ForwardRule {
-  id: number
-  hostId: number
-  localPort: number
-  remoteHost: string
-  remotePort: number
-  autoStart: boolean
-  running: boolean
-  error?: string
-  connections: number
-}
-
 export interface FileEntry {
   name: string
   path: string
@@ -151,18 +139,6 @@ export const updateSnippet = (id: number, p: SnippetPayload) =>
   call<void>('db.snippets.update', { id, ...p })
 export const deleteSnippet = (id: number) => call<void>('db.snippets.delete', { id })
 export const reorderSnippets = (ids: number[]) => call<void>('db.snippets.reorder', { ids })
-
-// ── forwards ────────────────────────────────────────────────────────────────
-
-export const listForwards = () => call<ForwardRule[]>('forward.list')
-export const startForward = (p: {
-  hostId: number
-  localPort: number
-  remoteHost: string
-  remotePort: number
-  autoStart: boolean
-}) => call<ForwardRule>('forward.start', p)
-export const stopForward = (localPort: number) => call<void>('forward.stop', { localPort })
 
 // ── sftp ────────────────────────────────────────────────────────────────────
 

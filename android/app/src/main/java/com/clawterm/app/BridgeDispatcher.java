@@ -35,7 +35,7 @@ import java.util.Map;
  * ## Structure
  *
  * One `handle` method with a switch over the method name. The alternative — one
- * `@JavascriptInterface` per operation — would put ~35 magic strings on the Java
+ * `@JavascriptInterface` per operation — would put 26 magic strings on the Java
  * side that must match the TypeScript union exactly, each needing a ProGuard keep
  * rule, and a typo would surface only at runtime as "method not found".
  *
@@ -58,7 +58,6 @@ final class BridgeDispatcher {
     private final Db db;
     private final SecretStore secrets;
     private final TerminalManager terminals;
-    private final ForwardManager forwards;
     private final WebView webView;
 
     /** Live SSH connections keyed by host id, so a second tab reuses one. */
@@ -66,12 +65,11 @@ final class BridgeDispatcher {
     private final Map<Long, Integer> connectionRefs = new HashMap<>();
 
     BridgeDispatcher(Context ctx, Db db, SecretStore secrets, TerminalManager terminals,
-                     ForwardManager forwards, WebView webView) {
+                     WebView webView) {
         this.ctx = ctx;
         this.db = db;
         this.secrets = secrets;
         this.terminals = terminals;
-        this.forwards = forwards;
         this.webView = webView;
     }
 
@@ -192,15 +190,13 @@ final class BridgeDispatcher {
                 return hostUpdate(p);
             case "db.hosts.delete": {
                 long id = p.optLong("id");
-                // Order matters: stop the forward first (it holds a channel on
-                // the connection), then the terminals, then the connection.
-                forwards.stopHost(id);
+                // Order matters: the terminals hold channels on the connection,
+                // so they go before it.
                 dropConnection(id);
                 synchronized (db.lock()) {
                     SQLiteDatabase w = db.getWritableDatabase();
                     w.delete("hosts", "id = ?", new String[]{String.valueOf(id)});
                     w.delete("snippets", "host_id = ?", new String[]{String.valueOf(id)});
-                    w.delete("forward_rules", "host_id = ?", new String[]{String.valueOf(id)});
                 }
                 secrets.deleteHost(id);
                 return null;
@@ -249,21 +245,6 @@ final class BridgeDispatcher {
                     } finally {
                         w.endTransaction();
                     }
-                }
-                return null;
-            }
-
-            // ── forwards ──
-            case "forward.list":
-                return forwardsJson();
-            case "forward.start":
-                return forwardStart(p);
-            case "forward.stop": {
-                int port = p.optInt("localPort");
-                forwards.stop(port);
-                synchronized (db.lock()) {
-                    db.getWritableDatabase().delete("forward_rules", "local_port = ?",
-                            new String[]{String.valueOf(port)});
                 }
                 return null;
             }
@@ -520,75 +501,6 @@ final class BridgeDispatcher {
         return null;
     }
 
-    // ── forwards ────────────────────────────────────────────────────────────
-
-    private JSONArray forwardsJson() throws Exception {
-        JSONArray out = new JSONArray();
-        Map<Long, String> names = new HashMap<>();
-        try (Cursor c = db.getReadableDatabase().rawQuery("SELECT id, name FROM hosts", null)) {
-            while (c.moveToNext()) names.put(c.getLong(0), c.getString(1));
-        }
-        try (Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, host_id, local_port, remote_host, remote_port, auto_start"
-                        + " FROM forward_rules ORDER BY id ASC", null)) {
-            while (c.moveToNext()) {
-                int port = c.getInt(2);
-                JSONObject o = new JSONObject();
-                o.put("id", c.getLong(0));
-                o.put("hostId", c.getLong(1));
-                o.put("hostName", names.containsKey(c.getLong(1)) ? names.get(c.getLong(1)) : "");
-                o.put("localPort", port);
-                o.put("remoteHost", c.getString(3));
-                o.put("remotePort", c.getInt(4));
-                o.put("autoStart", c.getInt(5) != 0);
-                o.put("running", forwards.isRunning(port));
-                o.put("connections", forwards.connections(port));
-                String err = forwards.error(port);
-                if (err != null) o.put("error", err);
-                out.put(o);
-            }
-        }
-        // A forward can run without a persisted rule (a one-off), so add those
-        // that the table does not mention.
-        return out;
-    }
-
-    private JSONObject forwardStart(JSONObject p) throws Exception {
-        long hostId = p.optLong("hostId");
-        int localPort = p.optInt("localPort");
-        int remotePort = p.optInt("remotePort");
-        String remoteHost = p.optString("remoteHost", "127.0.0.1");
-        boolean autoStart = p.optBoolean("autoStart", false);
-
-        if (localPort < 1 || localPort > 65535 || remotePort < 1 || remotePort > 65535) {
-            throw new SshException("ports must be between 1 and 65535", "bad_request");
-        }
-        if (hostId <= 0) throw new SshException("hostId is required", "bad_request");
-
-        SshConnection conn = connectionFor(hostId, false);
-        forwards.start(hostId, conn, localPort, remoteHost, remotePort);
-
-        synchronized (db.lock()) {
-            ContentValues v = new ContentValues();
-            v.put("host_id", hostId);
-            v.put("local_port", localPort);
-            v.put("remote_host", remoteHost);
-            v.put("remote_port", remotePort);
-            v.put("auto_start", autoStart ? 1 : 0);
-            v.put("created_at", isoNow());
-            db.getWritableDatabase().insert("forward_rules", null, v);
-        }
-
-        JSONObject o = new JSONObject();
-        o.put("localPort", localPort);
-        o.put("remotePort", remotePort);
-        o.put("remoteHost", remoteHost);
-        o.put("hostId", hostId);
-        o.put("running", true);
-        o.put("connections", 0);
-        return o;
-    }
-
     // ── ssh ─────────────────────────────────────────────────────────────────
 
     private JSONObject sshTest(JSONObject p) throws Exception {
@@ -810,8 +722,8 @@ final class BridgeDispatcher {
     /**
      * Return a live connection for the host, dialling when needed.
      *
-     * `counted` controls whether the caller takes a reference: a terminal or a
-     * forward does (it must keep the connection alive), while a one-off SFTP call
+     * `counted` controls whether the caller takes a reference: a terminal does
+     * (it must keep the connection alive), while a one-off SFTP or exec call
      * does not (the pooled entry stays until something else needs it).
      */
     private SshConnection connectionFor(long hostId, boolean counted) throws Exception {

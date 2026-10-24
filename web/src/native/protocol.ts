@@ -35,9 +35,6 @@ export type Method =
   | 'db.snippets.update'
   | 'db.snippets.delete'
   | 'db.snippets.reorder'
-  | 'db.forwards.list'
-  | 'db.forwards.create'
-  | 'db.forwards.delete'
   | 'db.settings.get'
   | 'db.settings.set'
   // ── local access password (a device gate, not an account) ──
@@ -58,10 +55,6 @@ export type Method =
   | 'sftp.list'
   | 'sftp.read'
   | 'sftp.download'
-  // ── port forwarding ──
-  | 'forward.start'
-  | 'forward.stop'
-  | 'forward.list'
   // ── misc ──
   | 'app.info'
 
@@ -72,8 +65,6 @@ export type EventType =
   | 'terminal.exit'
   /** Connection state change: connecting / connected / reconnecting / error. */
   | 'terminal.state'
-  /** A port forward's status changed (accepted a connection, failed). */
-  | 'forward.status'
 
 export interface BridgeRequest {
   method: Method
